@@ -7,8 +7,9 @@
  * the Vitest module graph, so it cannot be exercised there directly.
  *
  * This copy is NEVER imported by the mobile app or by the edge function. The edge function
- * imports the real one, next to it, by relative path. KEEP THESE TWO FILES IN SYNC — see
- * coach.test.ts for the tests that exercise this copy.
+ * inlines the same logic in supabase/functions/ai-coach/index.ts for Supabase dashboard
+ * deployment (single-file editor). KEEP THESE COPIES IN SYNC — see coach.test.ts for the
+ * tests that exercise this file.
  */
 
 export type ChatRole = "user" | "assistant";

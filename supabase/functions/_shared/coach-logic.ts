@@ -5,17 +5,15 @@
  * plain function of its arguments, which is what makes it checkable without a live
  * database or model.
  *
- * This file is imported by supabase/functions/ai-coach/index.ts (relative import, Deno
- * resolves local .ts files directly, no bundler needed).
+ * The dashboard-deployable Edge Function at supabase/functions/ai-coach/index.ts inlines
+ * this logic so it does not depend on a relative ../_shared import (the Supabase web
+ * editor only provides index.ts). Keep this file and that inlined block in sync.
  *
- * A content-identical copy lives at packages/domain/src/coach.ts purely so it can run
+ * A content-identical copy also lives at packages/domain/src/coach.ts purely so it can run
  * under this project's real Vitest setup — Deno edge functions are not part of the pnpm
  * workspace/Vitest graph, so that is the only way to get this logic under the project's
  * actual test runner. That copy is never imported by the edge function or the mobile app.
- * KEEP THE TWO FILES IN SYNC. Whether a Deno edge function can instead import straight from
- * packages/domain/src/coach.ts at deploy time was not checked here (no network access to a
- * real Supabase CLI/deploy in this environment) — worth trying on a networked machine to
- * remove this duplication.
+ * KEEP THE COPIES IN SYNC.
  */
 
 export type ChatRole = "user" | "assistant";

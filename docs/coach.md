@@ -26,20 +26,17 @@ This phase:
 
 ## Architecture
 
-- **`supabase/functions/_shared/coach-logic.ts`** — the actual logic that ships: history
-  windowing, the Gemini request shape, message validation, personalized-context text, and the
-  safety/rate-limit checks. No Supabase client, no Gemini call, no Deno-specific API inside it —
-  it is plain functions of plain arguments.
-- **`supabase/functions/ai-coach/index.ts`** — the Edge Function. Auth, the Gemini call, and all
-  Supabase queries live here; the decisions about what to send are delegated to the file above.
+- **`supabase/functions/ai-coach/index.ts`** — the Edge Function (self-contained for Supabase
+  dashboard deployment). Auth, the Gemini call, Supabase queries, and the inlined coach
+  decision logic all live in this single file. Paste only this file into the dashboard editor.
+- **`supabase/functions/_shared/coach-logic.ts`** — the same pure decision logic kept as a
+  readable shared reference (history windowing, Gemini request shape, message validation,
+  personalized-context text, safety/rate-limit checks). No longer imported by the Edge Function.
 - **`packages/domain/src/coach.ts`** — a copy of `coach-logic.ts` whose executable logic matches and whose header comment differs, kept solely
   so this logic can run under the project's real Vitest setup. A Deno edge function is outside
   the pnpm workspace/Vitest module graph, so this is the only way to get it under the project's
   actual test runner. **This copy is never imported by the mobile app or the edge function** —
-  said again because it is easy to assume otherwise. Whether a Deno edge function can instead
-  import straight from `packages/domain/src/coach.ts` at deploy time (removing this duplication)
-  was not checked here, since checking it needs a real Supabase CLI deploy and this environment
-  has no network access to one. Worth trying once you have both.
+  said again because it is easy to assume otherwise.
 - **`packages/domain/src/coach.test.ts`** — the tests, run against the copy above.
 - **`ai_conversations` / `ai_messages`** — unchanged schema, no migration. They already had
   everything this phase needed: a `conversation_id` to group turns, a `role`, `content`, and RLS
@@ -171,11 +168,11 @@ real bug, but also not a real typecheck.
 deploy, an actual Gemini API call, and the mobile UI on any device or in the browser preview.
 
 **Needs a live Supabase project + a real Gemini key:** everything about whether a message
-actually round-trips — the Edge Function deploying without error, the Deno runtime resolving the
-relative `../_shared/coach-logic.ts` import the way this document assumes it does, the Supabase
-queries returning the shapes assumed here, a real Gemini response parsing correctly, conversation
-reuse and history actually improving the model's answers turn to turn, the rate limit and timeout
-firing correctly, and the mobile screen's history list and retry behaving as described.
+actually round-trips — the Edge Function deploying without error (paste the self-contained
+`ai-coach/index.ts` into the Supabase dashboard editor), the Supabase queries returning the
+shapes assumed here, a real Gemini response parsing correctly, conversation reuse and history
+actually improving the model's answers turn to turn, the rate limit and timeout firing correctly,
+and the mobile screen's history list and retry behaving as described.
 
 **Needs a physical iPhone and Android phone:** the keyboard-avoiding behavior, scrolling, and
 general usability of the chat screen; whether the coach's answers meaningfully change once real
