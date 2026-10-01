@@ -55,17 +55,15 @@ packages/brand        Static brand constants (name, colors reference).
 
 supabase/
   migrations/          one SQL file (0001_foundation.sql) — the entire remote schema
-  functions/ai-coach/  the Gemini-calling Edge Function
-  functions/_shared/   logic shared between the edge function and (as a test-only mirror) packages/domain
+  functions/ai-coach/  self-contained Gemini Edge Function (single index.ts for dashboard deploy)
+  functions/_shared/   coach-logic reference copy (inlined into ai-coach; mirrored in packages/domain for tests)
 ```
 
 **Why domain logic is duplicated for the AI coach specifically**: a Supabase Edge Function runs
-on Deno, outside the pnpm workspace / Vitest module graph, so `supabase/functions/_shared/coach-logic.ts`
-(the real, deployed logic) has a content-identical copy at `packages/domain/src/coach.ts` (test-only,
-never imported by the app or the function) purely so it can run under this project's real Vitest.
-Whether a Deno function can instead import `packages/domain` directly at deploy time was never
-checked — no network access to a real Supabase CLI. This is flagged as technical debt (section 21).
-
+on Deno, outside the pnpm workspace / Vitest module graph. `ai-coach/index.ts` is self-contained
+for dashboard deployment; `supabase/functions/_shared/coach-logic.ts` and
+`packages/domain/src/coach.ts` keep content-identical copies for readability and Vitest.
+`packages/domain/src/coach.ts` is never imported by the app or the function.
 **Local-first, sync-optional**: SQLite (`apps/mobile/src/data/db.ts`) is the source of truth.
 Supabase is an opt-in backup/sync layer (Phase 2) that requires sign-in; every feature works fully
 signed-out. Row Level Security scopes every Supabase table to `auth.uid()`; the mobile app never
