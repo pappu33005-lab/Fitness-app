@@ -1,0 +1,9 @@
+{
+  "name": "VitaCore",
+  "slug": "vitacore",
+  "scheme": "vitacore",
+  "iosBundleIdentifier": "app.vitacore.mobile",
+  "androidPackage": "app.vitacore.mobile",
+  "version": "0.1.0",
+  "openFoodFactsUserAgent": "VitaCore/0.1.0 (local development)"
+}

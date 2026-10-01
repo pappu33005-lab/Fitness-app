@@ -1,0 +1,17 @@
+{
+  "name": "vitacore",
+  "private": true,
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "pnpm --filter @vitacore/mobile start",
+    "ios": "pnpm --filter @vitacore/mobile ios",
+    "android": "pnpm --filter @vitacore/mobile android",
+    "web": "pnpm --filter @vitacore/mobile web",
+    "lint": "pnpm --filter @vitacore/mobile lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
+  }
+}
