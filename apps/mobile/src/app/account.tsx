@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { AppText, Button, Screen, TextField } from "@/components/ui";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
@@ -11,7 +11,24 @@ export default function AccountScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const configured = supabaseConfigStatus() === "ready";
+
+  useEffect(() => {
+    const client = getSupabase();
+    if (!client) return;
+    let cancelled = false;
+    void client.auth.getSession().then(({ data }) => {
+      if (!cancelled) setSessionEmail(data.session?.user.email ?? null);
+    });
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      setSessionEmail(session?.user.email ?? null);
+    });
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+    };
+  }, []);
 
   async function act(kind: "sign-up" | "sign-in" | "reset") {
     const client = getSupabase();
@@ -29,15 +46,34 @@ export default function AccountScreen() {
     setMessage(error ? error.message : kind === "sign-up" ? "Account created. Confirm the email if the project requires it, then your local history can be uploaded." : "Signed in.");
   }
 
+  async function signOut() {
+    const client = getSupabase();
+    if (!client) {
+      setMessage("Cloud sign-in is waiting on the Supabase environment variables.");
+      return;
+    }
+    const { error } = await client.auth.signOut();
+    setPassword("");
+    setMessage(error ? error.message : "Signed out. Local data on this device is unchanged.");
+  }
+
   return (
     <Screen>
       <AppText variant="h1">Account</AppText>
       <AppText variant="small" color={colors.textSecondary}>{copy.guestCloud}</AppText>
       <View style={{ height: space.lg }} />
       {!configured ? <AppText variant="small">Cloud sign-in is waiting on the Supabase environment variables.</AppText> : null}
+      {sessionEmail ? (
+        <>
+          <AppText variant="small">Signed in as {sessionEmail}</AppText>
+          <View style={{ height: space.sm }} />
+          <Button label="Sign out" tone="secondary" onPress={() => void signOut()} />
+          <View style={{ height: space.lg }} />
+        </>
+      ) : null}
       <TextField label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
       <View style={{ height: space.sm }} />
-      <TextField label="Password" value={password} onChangeText={setPassword} />
+      <TextField label="Password" value={password} onChangeText={setPassword} secureTextEntry />
       <View style={{ height: space.md }} />
       <Button label="Create account" onPress={() => void act("sign-up")} />
       <View style={{ height: space.sm }} />

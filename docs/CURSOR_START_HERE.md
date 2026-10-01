@@ -18,6 +18,10 @@ report said it would work.
 - STEP 7 EAS development builds: **BLOCKED** (no Apple, Google Play, or EAS credentials in this environment)
 - STEPS 8–9 physical devices: **REQUIRES DEVICE**
 
+### Auth repair before device testing (same day)
+
+Password fields were cleartext (`secureTextEntry` missing). Sign-out was absent from the Account screen despite the auth checklist. Both were fixed. Re-ran typecheck, test, lint, and expo-doctor — all **PASS**. Live sign-in/sign-out against a Supabase project remains **REQUIRES EXTERNAL SERVICE** / **REQUIRES DEVICE**.
+
 ## STEP 1 — Install dependencies
 ```
 pnpm install
