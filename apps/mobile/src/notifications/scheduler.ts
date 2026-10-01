@@ -19,8 +19,6 @@ import {
   defaultReminderSettings,
   desiredSchedule,
   diffSchedule,
-  hydrationGoalMet,
-  incompleteGoals,
   isAllowedNotificationRoute,
   NOTIFICATION_ID_PREFIX,
   parseReminderSettings,

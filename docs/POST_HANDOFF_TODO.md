@@ -4,15 +4,10 @@ FEATURES" means genuinely optional, no-rush work.
 
 ## CRITICAL
 
-- [ ] Get `pnpm install` to succeed somewhere with network access. Nothing else can be verified
-      until this works.
-- [ ] Run `pnpm typecheck` for real and fix every error. Start with
-      `apps/mobile/src/health/native.ios.ts` and `native.android.ts` — every `NOTE:` comment
-      there marks a guessed API shape.
-- [ ] Run `pnpm test` for real (not the hand-rolled stand-in used during development) and fix
-      any failure. This is the pure-logic layer; a bug here likely affects multiple features.
-- [ ] Resolve and install `@maplibre/maplibre-react-native` (currently used in code but absent
-      from `package.json` entirely) and `expo-task-manager` (present but with a guessed version).
+- [x] Get `pnpm install` to succeed somewhere with network access. Passed on 1 Oct 2026 with pnpm 12.6.0.
+- [x] Run `pnpm typecheck` for real and fix every error. Passed after the repairs in this pass. HealthKit and Health Connect field names were checked against the installed type definitions (`@kingstinct/react-native-healthkit` 16.0.0 and `react-native-health-connect` 4.1.3). Device reads remain unverified.
+- [x] Run `pnpm test` for real. Passed: 8 files, 175 tests.
+- [x] Resolve and install `@maplibre/maplibre-react-native` (11.4.0, with the Expo config plugin) and align `expo-task-manager` to `~57.0.21`. Tiles still need a development build.
 - [ ] Create a real Supabase project, apply `supabase/migrations/0001_foundation.sql`, and
       confirm RLS actually isolates users — don't just trust the policy SQL by inspection.
 - [ ] Verify `readRecentWorkouts` on both platforms (the single least-certain reader in the

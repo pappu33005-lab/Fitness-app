@@ -134,8 +134,12 @@ export type LocalProfileRow = {
   onboarding_completed_at: string | null;
 };
 
-/** The remote `profiles.id` is the auth user id, not the local row id — a profile is a singleton per account. */
-export function buildProfilePayload(row: LocalProfileRow, userId: string) {
+/**
+ * The remote `profiles.id` is the auth user id, not the local row id — a profile is a singleton per account.
+ * `timezone` is an existing `public.profiles` column. The coach uses it to decide which calendar day
+ * "today" is. The device zone is passed in at upload time because the local profile row does not store one.
+ */
+export function buildProfilePayload(row: LocalProfileRow, userId: string, timezone: string) {
   return {
     id: userId,
     display_name: row.display_name,
@@ -153,7 +157,24 @@ export function buildProfilePayload(row: LocalProfileRow, userId: string) {
     hydration_target_ml: row.hydration_target_ml,
     step_goal: row.step_goal,
     onboarding_completed_at: row.onboarding_completed_at,
+    timezone,
   };
+}
+
+/**
+ * After one outbox item is accepted (or the local row is already gone), every pending row for the
+ * same record that is not newer than the one just handled can be dropped. Re-saving a record
+ * enqueues several rows; uploading the current row once already includes those edits.
+ */
+export function outboxIdsToClear(processed: OutboxItem, pending: readonly OutboxItem[]): string[] {
+  return pending
+    .filter(
+      (item) =>
+        item.entity === processed.entity &&
+        item.entityId === processed.entityId &&
+        item.createdAt <= processed.createdAt,
+    )
+    .map((item) => item.id);
 }
 
 export type LocalNutritionLogRow = {

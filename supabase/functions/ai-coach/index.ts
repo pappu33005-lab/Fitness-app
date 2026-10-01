@@ -12,10 +12,10 @@ import {
 } from "../_shared/coach-logic.ts";
 
 /**
- * Free-tier Gemini model listed with free input and output on the standard
- * lane: https://ai.google.dev/gemini-api/docs/pricing (checked 25 Sep 2026,
- * model id gemini-3.8-flash). GEMINI_MODEL can override it. This function
- * never enables billing.
+ * Model id checked against https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
+ * on 1 Oct 2026. GEMINI_MODEL can override it. Google's migration notes for this model
+ * say to omit temperature, topP, and topK. This function does not enable billing.
+ * Published pricing for this model is a paid introductory rate, not a confirmed free quota.
  */
 const FREE_MODEL = "gemini-3.8-flash";
 const GEMINI_TIMEOUT_MS = 25_000;
@@ -216,7 +216,7 @@ Deno.serve(async (request) => {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemInstruction }] },
           contents,
-          generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
+          generationConfig: { maxOutputTokens: 800 },
         }),
         signal: controller.signal,
       },
@@ -232,7 +232,7 @@ Deno.serve(async (request) => {
 
   if (completion.status === 429) {
     return Response.json(
-      { error: "The free Gemini allowance is used up for now. Wait a bit and try again. Nothing was billed." },
+      { error: "Gemini is rate-limiting this key right now. Wait a bit and try again." },
       { status: 429 },
     );
   }
@@ -242,7 +242,7 @@ Deno.serve(async (request) => {
     return Response.json(
       {
         error: billing
-          ? "Gemini did not accept this request on the free tier. Billing was not turned on."
+          ? "Gemini refused this request because of quota or billing on the API key. This function does not turn billing on."
           : "The coach could not reach Gemini. No answer was invented on the phone.",
       },
       { status: 502 },

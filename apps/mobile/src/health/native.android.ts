@@ -1,7 +1,7 @@
 /** Android development and release builds. Health Connect first, then the phone pedometer as its own labeled source. */
 import { Pedometer } from "expo-sensors";
 import { addDays, deviceTimeZone, localDay, zonedDayBounds } from "@vitacore/domain";
-import { initialize, readRecords, requestPermission } from "react-native-health-connect";
+import { initialize, readRecords, requestPermission, SleepStageType } from "react-native-health-connect";
 import type {
   ActiveEnergyReading,
   DistanceReading,
@@ -94,11 +94,10 @@ export async function readSteps(): Promise<StepReading> {
   }
 }
 
-const STAGE_AWAKE = 1;
-const STAGE_SLEEPING = 2;
-const STAGE_LIGHT = 4;
-const STAGE_DEEP = 5;
-const STAGE_REM = 6;
+/**
+ * Health Connect's STAGE_TYPE_AWAKE_IN_BED is 7. react-native-health-connect@4.1.3's
+ * SleepStageType constant omits it, so the numeric value is kept here.
+ */
 const STAGE_AWAKE_IN_BED = 7;
 
 export async function readSleep(): Promise<SleepReading> {
@@ -125,16 +124,18 @@ export async function readSleep(): Promise<SleepReading> {
       for (const stage of record.stages ?? []) {
         const minutes = Math.max(0, (new Date(stage.endTime).getTime() - new Date(stage.startTime).getTime()) / 60000);
         sawStage = true;
-        if (stage.stage === STAGE_AWAKE || stage.stage === STAGE_AWAKE_IN_BED) stages.awake += minutes;
-        if (stage.stage === STAGE_LIGHT || stage.stage === STAGE_SLEEPING) {
+        if (stage.stage === SleepStageType.AWAKE || stage.stage === STAGE_AWAKE_IN_BED || stage.stage === SleepStageType.OUT_OF_BED) {
+          stages.awake += minutes;
+        }
+        if (stage.stage === SleepStageType.LIGHT || stage.stage === SleepStageType.SLEEPING) {
           stages.light += minutes;
           asleep += minutes;
         }
-        if (stage.stage === STAGE_DEEP) {
+        if (stage.stage === SleepStageType.DEEP) {
           stages.deep += minutes;
           asleep += minutes;
         }
-        if (stage.stage === STAGE_REM) {
+        if (stage.stage === SleepStageType.REM) {
           stages.rem += minutes;
           asleep += minutes;
         }
@@ -161,13 +162,6 @@ export async function readSleep(): Promise<SleepReading> {
   }
 }
 
-/**
- * NOTE: field names (`beatsPerMinute`, `heartRateVariabilityMillis`) follow Android's
- * Health Connect record schema (RestingHeartRateRecord, HeartRateVariabilityRmssdRecord).
- * This has not been checked against react-native-health-connect's installed type
- * definitions (no `node_modules` in this environment) — verify on a real build and
- * adjust field names here if the library reports them differently.
- */
 export async function readRestingHeartRate(): Promise<HeartRateReading> {
   try {
     const ready = await initialize();
@@ -176,7 +170,7 @@ export async function readRestingHeartRate(): Promise<HeartRateReading> {
     const page = await readRecords("RestingHeartRate", {
       timeRangeFilter: { operator: "between", startTime: range.startTime, endTime: range.endTime },
     });
-    const todayRecords = page.records as unknown as Array<{ beatsPerMinute: number }>;
+    const todayRecords = page.records;
     if (todayRecords.length === 0) {
       return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no resting heart rate for today." };
     }
@@ -186,7 +180,7 @@ export async function readRestingHeartRate(): Promise<HeartRateReading> {
     const baselinePage = await readRecords("RestingHeartRate", {
       timeRangeFilter: { operator: "between", startTime: baseline.startTime, endTime: baseline.endTime },
     });
-    const baselineRecords = baselinePage.records as unknown as Array<{ beatsPerMinute: number }>;
+    const baselineRecords = baselinePage.records;
     const baselineAvg = baselineRecords.length
       ? baselineRecords.reduce((sum, record) => sum + record.beatsPerMinute, 0) / baselineRecords.length
       : null;
@@ -211,7 +205,7 @@ export async function readHeartRateVariability(): Promise<HrvReading> {
     const page = await readRecords("HeartRateVariabilityRmssd", {
       timeRangeFilter: { operator: "between", startTime: range.startTime, endTime: range.endTime },
     });
-    const todayRecords = page.records as unknown as Array<{ heartRateVariabilityMillis: number }>;
+    const todayRecords = page.records;
     if (todayRecords.length === 0) {
       return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no heart-rate variability for today." };
     }
@@ -221,7 +215,7 @@ export async function readHeartRateVariability(): Promise<HrvReading> {
     const baselinePage = await readRecords("HeartRateVariabilityRmssd", {
       timeRangeFilter: { operator: "between", startTime: baseline.startTime, endTime: baseline.endTime },
     });
-    const baselineRecords = baselinePage.records as unknown as Array<{ heartRateVariabilityMillis: number }>;
+    const baselineRecords = baselinePage.records;
     const baselineAvg = baselineRecords.length
       ? baselineRecords.reduce((sum, record) => sum + record.heartRateVariabilityMillis, 0) / baselineRecords.length
       : null;
@@ -238,11 +232,6 @@ export async function readHeartRateVariability(): Promise<HrvReading> {
   }
 }
 
-/**
- * NOTE: `record.distance.inMeters` follows Health Connect's native Kotlin `DistanceRecord`
- * shape (a `Length` value object). Whether react-native-health-connect exposes it this way,
- * or flattened to a plain number, has not been checked against the installed package.
- */
 export async function readDistance(): Promise<DistanceReading> {
   try {
     const ready = await initialize();
@@ -251,7 +240,7 @@ export async function readDistance(): Promise<DistanceReading> {
     const page = await readRecords("Distance", {
       timeRangeFilter: { operator: "between", startTime: range.startTime, endTime: range.endTime },
     });
-    const records = page.records as unknown as Array<{ distance: { inMeters: number } }>;
+    const records = page.records;
     if (records.length === 0) return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no distance records for today." };
     const meters = records.reduce((sum, record) => sum + record.distance.inMeters, 0);
     return { status: "value", meters: Math.round(meters), sourceLabel: "Distance · Health Connect" };
@@ -261,7 +250,6 @@ export async function readDistance(): Promise<DistanceReading> {
   }
 }
 
-/** NOTE: `record.energy.inKilocalories` follows Health Connect's native `ActiveCaloriesBurnedRecord` (`Energy` value object) — same unverified-shape caveat as readDistance. */
 export async function readActiveEnergy(): Promise<ActiveEnergyReading> {
   try {
     const ready = await initialize();
@@ -270,7 +258,7 @@ export async function readActiveEnergy(): Promise<ActiveEnergyReading> {
     const page = await readRecords("ActiveCaloriesBurned", {
       timeRangeFilter: { operator: "between", startTime: range.startTime, endTime: range.endTime },
     });
-    const records = page.records as unknown as Array<{ energy: { inKilocalories: number } }>;
+    const records = page.records;
     if (records.length === 0) return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no active-energy records for today." };
     const kcal = records.reduce((sum, record) => sum + record.energy.inKilocalories, 0);
     return { status: "value", kcal: Math.round(kcal), sourceLabel: "Active energy · Health Connect" };
@@ -280,7 +268,6 @@ export async function readActiveEnergy(): Promise<ActiveEnergyReading> {
   }
 }
 
-/** NOTE: `ExerciseSession` field names (`exerciseType`, `startTime`, `endTime`) follow Health Connect's native record schema — same unverified-shape caveat as readDistance/readActiveEnergy, and less precedent in this file than any other reader (no prior workout-style query existed to mirror). Fails closed via the try/catch below if wrong. */
 export async function readRecentWorkouts(): Promise<WorkoutsReading> {
   try {
     const ready = await initialize();
@@ -290,7 +277,7 @@ export async function readRecentWorkouts(): Promise<WorkoutsReading> {
     const page = await readRecords("ExerciseSession", {
       timeRangeFilter: { operator: "between", startTime: start.toISOString(), endTime: end.toISOString() },
     });
-    const records = page.records as unknown as Array<{ metadata?: { id?: string }; exerciseType: number | string; startTime: string; endTime: string }>;
+    const records = page.records;
     if (records.length === 0) {
       return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no exercise sessions from the last 7 days." };
     }

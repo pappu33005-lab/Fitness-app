@@ -6,8 +6,8 @@ Phase 1 is the foundation: Expo SDK 57, the design system, local guest data, nat
 
 ## Requirements
 
-- Node.js 22.13 or newer. Node.js 24 is what this workspace uses.
-- pnpm 12
+- Node.js 22.13 or newer. The verification machine used Node 22.14.0. Node 24 is the Active LTS named in `docs/versions.md`; this repo does not require it.
+- pnpm 12.6.0 (`packageManager` in the root `package.json`)
 
 ## iOS and Android
 
@@ -51,8 +51,8 @@ pnpm --filter @vitacore/mobile lint
 ## What is not connected
 
 - Supabase, until `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` are set. The service role key never goes in the app.
-- The coach, until you set `GEMINI_API_KEY` as an Edge Function secret. The default model is `gemini-3.8-flash` on the free tier. `GEMINI_MODEL` can override it. The app does not enable billing. Now multi-turn with real conversation history and expanded personalized context — implemented in code, not yet run against a live project. See `docs/coach.md`.
-- Base maps under routes on iOS and Android, until `@maplibre/maplibre-react-native` is installed and `EXPO_PUBLIC_MAP_TILE_STYLE_URL` points at an HTTPS MapLibre style you have licensed. Routes are always drawn as an outline from the stored points. The map code has not been run. `expo-maps` was not added because it pulls Google Maps onto Android. See `docs/maps.md`.
+- The coach, until you set `GEMINI_API_KEY` as an Edge Function secret and deploy `ai-coach`. The default model id is `gemini-3.8-flash`. Google's 1 Oct 2026 docs list paid introductory pricing for that model, not a confirmed free quota. `GEMINI_MODEL` can override the id. The app does not enable billing and does not hold the key. Multi-turn history is implemented in code and has not been run against a live project. See `docs/coach.md`.
+- Base-map tiles, until a development build includes `@maplibre/maplibre-react-native` 11.4.0 (already in `package.json` and `app.config.ts`) and `EXPO_PUBLIC_MAP_TILE_STYLE_URL` points at an HTTPS MapLibre style you have licensed. Routes are always drawn as an outline from the stored points. Tile rendering has not been run on a device. `expo-maps` was not added because it pulls Google Maps onto Android. See `docs/maps.md`.
 - Rain, ocean, forest, and spoken stories. Those slots are empty on purpose.
 - Snoring classification. Consent and retention rules exist. No model is bundled, and the microphone is not requested.
 - Direct WHOOP, Fitbit, and Garmin APIs. New Garmin developer access is paused, and the legacy Fitbit Web API is shutting down in favor of the Google Health API, which needs a restricted-scope review; WHOOP requires its own registered developer app and a paying WHOOP member. None of this was independently re-verified this phase — see `docs/wearables.md`. Data appears only if the person already syncs that device into Apple Health or Health Connect.

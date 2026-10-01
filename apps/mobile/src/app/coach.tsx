@@ -5,9 +5,14 @@ import { brandConfig } from "@vitacore/brand";
 import { AppText, Button, Card, ErrorState, LoadingState, Screen, TextField } from "@/components/ui";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
 import { recordEvent } from "@/data/logs";
+import { createId } from "@/lib/id";
 import { copy } from "@/i18n/copy";
 import { useTheme } from "@/design/theme";
 import { space } from "@/design/tokens";
+
+function nextTurnId(): string {
+  return `pending-${createId()}`;
+}
 
 const suggestions = [
   "What should I do today?",
@@ -55,7 +60,9 @@ export default function CoachScreen() {
   const { colors } = useTheme();
   const scrollRef = useRef<ScrollView>(null);
 
-  const [configured, setConfigured] = useState<"unknown" | "unconfigured" | "signed_out" | "ready">("unknown");
+  const [configured, setConfigured] = useState<"unknown" | "unconfigured" | "signed_out" | "ready">(() =>
+    supabaseConfigStatus() !== "ready" || !getSupabase() ? "unconfigured" : "unknown",
+  );
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [thread, setThread] = useState<ChatTurn[]>([]);
   const [message, setMessage] = useState("");
@@ -67,17 +74,17 @@ export default function CoachScreen() {
   const [historyBusy, setHistoryBusy] = useState(false);
 
   useEffect(() => {
-    if (supabaseConfigStatus() !== "ready") {
-      setConfigured("unconfigured");
-      return;
-    }
+    if (configured !== "unknown") return;
     const client = getSupabase();
-    if (!client) {
-      setConfigured("unconfigured");
-      return;
-    }
-    void client.auth.getSession().then(({ data }) => setConfigured(data.session ? "ready" : "signed_out"));
-  }, []);
+    if (!client) return;
+    let cancelled = false;
+    void client.auth.getSession().then(({ data }) => {
+      if (!cancelled) setConfigured(data.session ? "ready" : "signed_out");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [configured]);
 
   function scrollToEnd() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -153,7 +160,7 @@ export default function CoachScreen() {
     }
     setError(null);
     setFailedText(null);
-    const userTurn: ChatTurn = { id: `pending-${Date.now()}`, role: "user", content: text };
+    const userTurn: ChatTurn = { id: nextTurnId(), role: "user", content: text };
     setThread((current) => [...current, userTurn]);
     setMessage("");
     setBusy(true);

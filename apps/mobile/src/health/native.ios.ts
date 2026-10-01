@@ -49,13 +49,6 @@ function baselineBounds(): { start: Date; end: Date } {
   return { start, end };
 }
 
-/**
- * NOTE: `["discreteAverage"]` is expected to populate `stats.averageQuantity`, mirroring
- * how `["cumulativeSum"]` populates `stats.sumQuantity` elsewhere in this file. This has
- * not been checked against @kingstinct/react-native-healthkit's installed type
- * definitions (no `node_modules` in this environment) — verify on a real build and adjust
- * the field name here if the library reports it differently.
- */
 async function discreteAverage(
   identifier: "HKQuantityTypeIdentifierRestingHeartRate" | "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
   unit: "count/min" | "ms",
@@ -66,7 +59,7 @@ async function discreteAverage(
     unit,
     filter: { date: { startDate: start, endDate: end } },
   });
-  const quantity = (stats as { averageQuantity?: { quantity?: number } }).averageQuantity?.quantity;
+  const quantity = stats.averageQuantity?.quantity;
   return quantity == null ? null : quantity;
 }
 
@@ -276,16 +269,6 @@ export async function readActiveEnergy(): Promise<ActiveEnergyReading> {
   }
 }
 
-/**
- * NOTE: `queryWorkoutSamples` and the shape it returns (`.uuid`, `.startDate`, `.endDate`,
- * `.workoutActivityType`) are a best guess at @kingstinct/react-native-healthkit's workout
- * query API, following the naming pattern its other query functions in this file already
- * use (queryCategorySamples, queryStatisticsForQuantity). This is less certain than the
- * rest of this file — there is no established precedent for the workout API specifically
- * in this codebase to mirror. Verify this whole function against the installed package
- * before trusting it; if the function name or shape is wrong, this fails closed (the
- * try/catch below returns "unavailable", not a crash or invented data).
- */
 export async function readRecentWorkouts(): Promise<WorkoutsReading> {
   try {
     const available = await isHealthDataAvailableAsync();

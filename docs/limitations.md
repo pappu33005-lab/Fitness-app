@@ -22,8 +22,7 @@ The product is the iOS app and the Android app. The browser is a development pre
 - `expo-maps` was not installed. On Android it uses Google Maps, which is a paid dependency that was not approved.
 - Route display is implemented in code and has not been run anywhere. See `docs/maps.md`.
 - One implementation serves both phones: a route outline drawn from the stored points (works offline, in the browser preview, and with no configuration), and an optional MapLibre base map on iOS and Android when `EXPO_PUBLIC_MAP_TILE_STYLE_URL` is an HTTPS style you have licensed.
-- `@maplibre/maplibre-react-native` is not in `package.json` yet, and no version was guessed. Until it is installed and the development build is rebuilt, only the outline is shown. Apple MapKit is not used; that was the earlier plan and was dropped in favor of one code path.
-- The tile map component targets the v10 API of that package from memory and has never run. Re-check it against the installed version.
+- `@maplibre/maplibre-react-native` 11.4.0 is installed and the Expo config plugin is registered. Tiles still require a rebuilt development build and `EXPO_PUBLIC_MAP_TILE_STYLE_URL`. Until that build exists, a missing native module falls back to the outline. Apple MapKit is not used.
 - The route outline has no roads or labels. It is not a map.
 - GPS distance, pace, splits, and elevation do not depend on any map.
 
@@ -44,9 +43,9 @@ The product is the iOS app and the Android app. The browser is a development pre
 
 Status: implemented in code. Not run against a live Supabase project or a real Gemini key. See `docs/coach.md` for the full picture.
 
-- The Edge Function calls Google Gemini. The default model is `gemini-3.8-flash`, which the Gemini pricing page listed as free of charge on the standard lane on 25 Sep 2026. `GEMINI_MODEL` can override it. The function does not enable billing.
-- A 429 or a free-tier refusal returns a retry message. The app does not fall back to a paid model.
-- The free tier may use prompts to improve Google products. That is stated on the coach screen.
+- The Edge Function calls Google Gemini. The default model id `gemini-3.8-flash` was still the documented stable id on 1 Oct 2026. Google's own page lists introductory paid pricing ($0.75 / 1M input tokens through 31 Dec 2026), not a confirmed free quota. `GEMINI_MODEL` can override the id. The function does not enable billing and no longer sends `temperature` (the 3.8 migration notes say to omit it).
+- A 429 or a quota/billing refusal returns a retry message. The app does not fall back to another model. Whether a free quota still exists was not tested with a live key.
+- Google's data-use terms for the API key's project may allow prompts to be used to improve Google products. That is stated on the coach screen. This pass did not re-read the current terms.
 - The phone never holds the key. Guests cannot use the coach, because the function requires a signed-in session and reads context through Row Level Security.
 - Conversation history is now sent back to Gemini (bounded to the last 12 messages or 8,000 characters, whichever is smaller). Previously each message was a fresh, isolated exchange — see `docs/coach.md` for why that was worth fixing and how the fix was verified.
 - Personalized context now includes the full profile (age, sex, height, weight, goal, activity level, fitness level, workout preference, dietary preferences, step/water/sleep targets), today's synced nutrition and water totals, the most recent synced sleep session, and recent synced workouts/GPS activity. A field with nothing to show says so explicitly rather than being left out.

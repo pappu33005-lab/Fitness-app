@@ -8,6 +8,7 @@ import {
   dedupeOutboxItems,
   isSupportedEntity,
   nextSyncStatus,
+  outboxIdsToClear,
   shouldAbortBatch,
   shouldMarkSynced,
   type OutboxItem,
@@ -105,7 +106,7 @@ describe("duplicate / idempotent upload", () => {
     expect(withFallbackId).toBeNull();
   });
 
-  it("does not invent a remote column: profile payload never carries a timezone field", () => {
+  it("sends the device timezone on the existing profiles.timezone column", () => {
     const row = {
       id: "local-profile-1",
       display_name: "Alex",
@@ -124,9 +125,9 @@ describe("duplicate / idempotent upload", () => {
       step_goal: null,
       onboarding_completed_at: null,
     };
-    const payload = buildProfilePayload(row, "auth-user-1");
+    const payload = buildProfilePayload(row, "auth-user-1", "America/New_York");
     expect(payload.id).toBe("auth-user-1"); // remote profiles.id is the auth user id, not the local row id
-    expect("timezone" in payload).toBe(false);
+    expect(payload.timezone).toBe("America/New_York");
   });
 });
 
@@ -147,6 +148,17 @@ describe("multiple queued records", () => {
     expect(deduped).toHaveLength(2);
     expect(deduped.find((item) => item.entity === "profile")?.id).toBe("o2");
     expect(deduped.find((item) => item.entity === "nutrition_logs")?.id).toBe("o3");
+  });
+
+  it("clears older queued copies of a record once the newest copy is accepted", () => {
+    const items: OutboxItem[] = [
+      { id: "o1", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:00:00.000Z" },
+      { id: "o2", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:05:00.000Z" },
+      { id: "o3", entity: "nutrition_logs", entityId: "n1", createdAt: "2026-09-28T10:01:00.000Z" },
+      { id: "o4", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:06:00.000Z" },
+    ];
+    const processed = items[1]!;
+    expect(outboxIdsToClear(processed, items).sort()).toEqual(["o1", "o2"]);
   });
 
   it("leaves distinct records untouched and in their original relative order", () => {

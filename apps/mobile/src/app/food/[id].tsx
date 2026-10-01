@@ -12,17 +12,14 @@ export default function EditFoodScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
-  const [state, setState] = useState<"loading" | "missing" | "ready">("loading");
+  const [state, setState] = useState<"loading" | "missing" | "ready">(id ? "loading" : "missing");
   const [draft, setDraft] = useState<FoodEntryDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!id) return;
     let cancelled = false;
-    if (!id) {
-      setState("missing");
-      return;
-    }
     void foodLogById(id).then((row) => {
       if (cancelled) return;
       if (!row) {

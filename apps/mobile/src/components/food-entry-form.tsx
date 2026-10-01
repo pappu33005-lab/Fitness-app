@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { View } from "react-native";
 import { sanitizeNutrientInput, sanitizeRequiredNutrientInput } from "@vitacore/domain";
 import { AppText, Button, TextField } from "@/components/ui";

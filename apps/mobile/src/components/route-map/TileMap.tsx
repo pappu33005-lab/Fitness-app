@@ -1,77 +1,111 @@
 /**
- * Native tile map (iOS and Android) using MapLibre.
+ * Native tile map (iOS and Android) using @maplibre/maplibre-react-native 11.4.
  *
- * STATUS: written against the @maplibre/maplibre-react-native v10 component API
- * (MapView, Camera, ShapeSource, LineLayer, CircleLayer) from memory. The package is NOT
- * installed in this project yet and this file has never been run. Install it with
- * `npx expo install @maplibre/maplibre-react-native` (or the package's documented command),
- * rebuild the development build, and re-check these props against the installed version;
- * a newer major version renamed several components.
+ * v11 renamed MapView → Map, ShapeSource → GeoJSONSource, and LineLayer/CircleLayer → Layer.
+ * The package is a native module: a development build is required before tiles can render.
+ * If the JavaScript module cannot be loaded, RouteMap keeps the SVG outline.
  *
- * The library is loaded optionally: if it is missing from the build, `nativeTileMapAvailable`
- * is false and RouteMap draws the tile-free outline instead of failing.
- *
- * Privacy: the only thing sent to the tile host is what any map view sends to fetch tiles for
- * the visible area. The route itself is drawn on the device and is never uploaded here.
+ * Privacy: the tile host sees the requests any map view makes for the visible area.
+ * The route geometry is drawn on the device and is not uploaded by this component.
  */
+import type { ComponentType } from "react";
 import { View } from "react-native";
+import type {
+  CameraProps,
+  CircleLayerSpecification,
+  GeoJSONSourceProps,
+  LayerProps,
+  LineLayerSpecification,
+  MapProps,
+} from "@maplibre/maplibre-react-native";
 import type { TileMapProps } from "./types";
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
-let library: any = null;
+type MapLibreModule = {
+  Map?: ComponentType<MapProps>;
+  Camera?: ComponentType<CameraProps>;
+  GeoJSONSource?: ComponentType<GeoJSONSourceProps>;
+  Layer?: ComponentType<LayerProps>;
+};
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+let library: MapLibreModule | null = null;
 try {
-  library = require("@maplibre/maplibre-react-native");
+  library = require("@maplibre/maplibre-react-native") as MapLibreModule;
 } catch {
   library = null;
 }
-const MapView = library?.MapView ?? library?.default?.MapView;
-const Camera = library?.Camera ?? library?.default?.Camera;
-const ShapeSource = library?.ShapeSource ?? library?.default?.ShapeSource;
-const LineLayer = library?.LineLayer ?? library?.default?.LineLayer;
-const CircleLayer = library?.CircleLayer ?? library?.default?.CircleLayer;
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
+/* eslint-enable @typescript-eslint/no-require-imports */
 
-export const nativeTileMapAvailable = Boolean(MapView && Camera && ShapeSource && LineLayer && CircleLayer);
+const routeLineLayer: LineLayerSpecification = {
+  id: "vitacore-route-line",
+  type: "line",
+  source: "vitacore-route",
+  layout: {
+    "line-cap": "round",
+    "line-join": "round",
+  },
+  paint: {
+    "line-color": "#E7A15A",
+    "line-width": 4,
+  },
+};
+
+const currentPointLayer: CircleLayerSpecification = {
+  id: "vitacore-current-dot",
+  type: "circle",
+  source: "vitacore-current",
+  paint: {
+    "circle-radius": 7,
+    "circle-color": "#FFFFFF",
+    "circle-stroke-color": "#E7A15A",
+    "circle-stroke-width": 3,
+  },
+};
+
+const Map = library?.Map;
+const Camera = library?.Camera;
+const GeoJSONSource = library?.GeoJSONSource;
+const Layer = library?.Layer;
+
+export const nativeTileMapAvailable = Boolean(Map && Camera && GeoJSONSource && Layer);
 
 export function TileMap({ styleUrl, line, bounds, current, follow, height, onLoaded, onFailed }: TileMapProps) {
-  if (!nativeTileMapAvailable) return null;
-  const point = current ? { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: current } } : null;
+  if (!nativeTileMapAvailable || !Map || !Camera || !GeoJSONSource || !Layer) return null;
+  const point = current ? { type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: current } } : null;
 
   return (
     <View style={{ height }}>
-      <MapView
+      <Map
         style={{ flex: 1 }}
         mapStyle={styleUrl}
-        logoEnabled={false}
-        attributionEnabled
-        compassEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
+        logo={false}
+        attribution
+        compass={false}
+        touchRotate={false}
+        touchPitch={false}
         onDidFinishLoadingMap={onLoaded}
         onDidFailLoadingMap={onFailed}
       >
         {follow && current ? (
-          <Camera centerCoordinate={current} zoomLevel={16} animationDuration={600} />
+          <Camera center={current} zoom={16} duration={600} />
         ) : bounds ? (
           <Camera
-            bounds={{ ne: bounds.ne, sw: bounds.sw, paddingTop: 32, paddingBottom: 32, paddingLeft: 32, paddingRight: 32 }}
-            animationDuration={0}
+            bounds={[bounds.sw[0], bounds.sw[1], bounds.ne[0], bounds.ne[1]]}
+            padding={{ top: 32, right: 32, bottom: 32, left: 32 }}
+            duration={0}
           />
         ) : null}
         {line ? (
-          <ShapeSource id="vitacore-route" shape={line}>
-            <LineLayer id="vitacore-route-line" style={{ lineColor: "#E7A15A", lineWidth: 4, lineCap: "round", lineJoin: "round" }} />
-          </ShapeSource>
+          <GeoJSONSource id="vitacore-route" data={line}>
+            <Layer {...routeLineLayer} />
+          </GeoJSONSource>
         ) : null}
         {point ? (
-          <ShapeSource id="vitacore-current" shape={point}>
-            <CircleLayer
-              id="vitacore-current-dot"
-              style={{ circleRadius: 7, circleColor: "#FFFFFF", circleStrokeColor: "#E7A15A", circleStrokeWidth: 3 }}
-            />
-          </ShapeSource>
+          <GeoJSONSource id="vitacore-current" data={point}>
+            <Layer {...currentPointLayer} />
+          </GeoJSONSource>
         ) : null}
-      </MapView>
+      </Map>
     </View>
   );
 }

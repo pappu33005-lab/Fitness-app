@@ -32,7 +32,7 @@ This phase:
   it is plain functions of plain arguments.
 - **`supabase/functions/ai-coach/index.ts`** — the Edge Function. Auth, the Gemini call, and all
   Supabase queries live here; the decisions about what to send are delegated to the file above.
-- **`packages/domain/src/coach.ts`** — a content-identical copy of `coach-logic.ts`, kept solely
+- **`packages/domain/src/coach.ts`** — a copy of `coach-logic.ts` whose executable logic matches and whose header comment differs, kept solely
   so this logic can run under the project's real Vitest setup. A Deno edge function is outside
   the pnpm workspace/Vitest module graph, so this is the only way to get it under the project's
   actual test runner. **This copy is never imported by the mobile app or the edge function** —
@@ -90,10 +90,13 @@ the Edge Function a second implementation in Deno risked the two disagreeing, wh
 not having the number at all. The coach can still give a rough, clearly-labeled estimate if asked
 and points to the app's own figure for the exact one.
 
+The Gemini request uses `generateContent` and no longer sends `temperature`. Google's 3.8 Flash migration notes (checked 1 Oct 2026) say to omit `temperature`, `topP`, and `topK`. The model id is still `gemini-3.8-flash`. Published pricing that day was a paid introductory rate, not a confirmed free quota. No live request was made.
+
 **A real, pre-existing limit worth restating:** everything above is server-side data, which means
 it only reflects what has actually synced (Phase 2's outbox worker). A device that has never
 synced, or synced a while ago, gives the coach a stale or empty picture — the coach cannot see
-today's SQLite rows directly, only what has made it to Supabase.
+today's SQLite rows directly, only what has made it to Supabase. Profile uploads now include the
+device timezone on the existing `profiles.timezone` column so "today" is not stuck on the SQL default of UTC.
 
 ## Safety
 

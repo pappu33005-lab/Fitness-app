@@ -49,7 +49,13 @@ const config: ExpoConfig = {
     "expo-router",
     "expo-sqlite",
     "expo-secure-store",
-    "expo-audio",
+    [
+      "expo-audio",
+      {
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     "expo-dev-client",
     [
       "expo-splash-screen",
@@ -96,6 +102,7 @@ const config: ExpoConfig = {
     "react-native-health-connect",
     "expo-localization",
     "expo-notifications",
+    "@maplibre/maplibre-react-native",
   ],
   experiments: {
     typedRoutes: true,

@@ -23,7 +23,7 @@ import {
 import { useTheme } from "@/design/theme";
 import { space } from "@/design/tokens";
 
-const WEEKDAY_LABELS: Array<{ value: Weekday; label: string }> = [
+const WEEKDAY_LABELS: { value: Weekday; label: string }[] = [
   { value: 0, label: "Sun" },
   { value: 1, label: "Mon" },
   { value: 2, label: "Tue" },

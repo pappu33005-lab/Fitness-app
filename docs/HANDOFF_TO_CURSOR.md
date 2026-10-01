@@ -1,3 +1,24 @@
+## Cursor verification — 1 October 2026
+
+This section was added after a networked verification pass. It overrides the older "never executed" claims below where they conflict.
+
+| Check | Result |
+| --- | --- |
+| Tracked files before this pass | 122, excluding `.git`. The handoff's count of 123 and its list of root files did not match the tree: `.env.example`, `.gitignore`, `.npmrc`, and `.nvmrc` were absent, and the readme was named `README 2.md`. |
+| `pnpm install` | PASS |
+| `pnpm typecheck` | PASS after the repairs in this pass |
+| `pnpm test` | PASS — 8 files, 175 tests (the handoff's "~250" was not the Vitest count) |
+| `pnpm --filter @vitacore/mobile lint` | PASS (0 errors) after the repairs |
+| `npx expo-doctor` | FAIL on the original pins (missing `expo-asset` peer, five SDK 57 patch mismatches). After `npx expo install` aligned those packages, a second run passed 21/21. |
+| `npx expo config --type public` | PASS. Config loads, including the MapLibre plugin. |
+| Development build, device, Supabase project, Gemini request | NOT RUN |
+
+Repairs in that pass: MapLibre 11.4 plus its config plugin and a v11 `TileMap`; `expo-task-manager` aligned to 57.0.21; Expo patch alignment and `expo-asset`; microphone recording permissions turned off for playback-only `expo-audio`; Gemini `temperature` removed; profile sync writes `profiles.timezone`; older duplicate outbox rows are cleared with the row that was uploaded; Health Connect out-of-bed sleep is counted as awake; health readers use the installed library types instead of casts; lint errors in the coach, food editor, and route map.
+
+Still not done here: a live Supabase project, RLS proof against two users, delete synchronization, a development build, and any physical device.
+
+---
+
 THIS DOCUMENT IS A HANDOFF, NOT A CLAIM THAT THE APPLICATION IS PRODUCTION READY.
 
 Everything in this document was written by an AI (Claude) working in a sandbox with **no

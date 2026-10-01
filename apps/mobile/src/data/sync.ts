@@ -27,8 +27,10 @@ import {
   canStartSync,
   classifySupabaseError,
   dedupeOutboxItems,
+  deviceTimeZone,
   isSupportedEntity,
   nextSyncStatus,
+  outboxIdsToClear,
   shouldAbortBatch,
   shouldMarkSynced,
   type LocalActivityPointRow,
@@ -91,7 +93,7 @@ async function uploadOne(client: SupabaseClient, userId: string, item: OutboxIte
       case "profile": {
         const row = await db.getFirstAsync<LocalProfileRow>("SELECT * FROM profile WHERE id = ?", item.entityId);
         if (!row) return { kind: "skipped_missing_local_row", itemId: item.id };
-        const { error } = await client.from("profiles").upsert(buildProfilePayload(row, userId), { onConflict: "id" });
+        const { error } = await client.from("profiles").upsert(buildProfilePayload(row, userId, deviceTimeZone()), { onConflict: "id" });
         if (error) throw error;
         return { kind: "synced", itemId: item.id };
       }
@@ -235,7 +237,9 @@ export async function runSync(): Promise<void> {
       const outcome = await uploadOne(client, userId, item);
       outcomes.push(outcome);
       if (shouldMarkSynced(outcome)) {
-        await clearOutboxItem(item.id);
+        for (const id of outboxIdsToClear(item, items)) {
+          await clearOutboxItem(id);
+        }
       }
       if (shouldAbortBatch(outcome)) break;
     }
