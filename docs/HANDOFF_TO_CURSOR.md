@@ -290,7 +290,7 @@ account, Garmin Connect Developer Program approval.
 
 ## 12. Required API credentials
 
-`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (public, safe to ship — RLS-protected),
+`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (public, safe to ship — RLS-protected),
 `GEMINI_API_KEY` + optionally `GEMINI_MODEL` (Supabase Edge Function secret, server-only),
 `EXPO_PUBLIC_MAP_TILE_STYLE_URL` (public, compiled into the app — use a key restricted to this
 app if the provider embeds one in the URL). `SUPABASE_SERVICE_ROLE_KEY` is referenced only in

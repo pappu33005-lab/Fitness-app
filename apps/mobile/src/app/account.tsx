@@ -33,7 +33,7 @@ export default function AccountScreen() {
   async function act(kind: "sign-up" | "sign-in" | "reset") {
     const client = getSupabase();
     if (!client) {
-      setMessage("Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY. The service role key does not belong in the app.");
+      setMessage("Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY. The service role key does not belong in the app.");
       return;
     }
     if (kind === "reset") {

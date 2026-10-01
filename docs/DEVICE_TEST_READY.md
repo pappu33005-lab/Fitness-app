@@ -27,7 +27,7 @@ Status after the Cursor verification pass (1 Oct 2026). Static checks pass. Noth
 
 ## Exact next steps for real-device testing
 
-1. Copy `.env.example` to `.env` and set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`. Optionally set `EXPO_PUBLIC_MAP_TILE_STYLE_URL`.
+1. Copy `.env.example` to `.env` (repo root) and also to `apps/mobile/.env`, then set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Optionally set `EXPO_PUBLIC_MAP_TILE_STYLE_URL`. Expo loads env from `apps/mobile`.
 2. Create a Supabase project, apply `supabase/migrations/0001_foundation.sql`, and deploy `supabase/functions/ai-coach` with `GEMINI_API_KEY`.
 3. From `apps/mobile`, create development builds:
    - `eas build --profile development --platform ios`

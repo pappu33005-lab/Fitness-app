@@ -50,7 +50,7 @@ pnpm --filter @vitacore/mobile lint
 
 ## What is not connected
 
-- Supabase, until `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` are set. The service role key never goes in the app.
+- Supabase, until `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are set. The service role / secret key never goes in the app.
 - The coach, until you set `GEMINI_API_KEY` as an Edge Function secret and deploy `ai-coach`. The default model id is `gemini-3.8-flash`. Google's 1 Oct 2026 docs list paid introductory pricing for that model, not a confirmed free quota. `GEMINI_MODEL` can override the id. The app does not enable billing and does not hold the key. Multi-turn history is implemented in code and has not been run against a live project. See `docs/coach.md`.
 - Base-map tiles, until a development build includes `@maplibre/maplibre-react-native` 11.4.0 (already in `package.json` and `app.config.ts`) and `EXPO_PUBLIC_MAP_TILE_STYLE_URL` points at an HTTPS MapLibre style you have licensed. Routes are always drawn as an outline from the stored points. Tile rendering has not been run on a device. `expo-maps` was not added because it pulls Google Maps onto Android. See `docs/maps.md`.
 - Rain, ocean, forest, and spoken stories. Those slots are empty on purpose.
