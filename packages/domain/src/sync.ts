@@ -29,6 +29,8 @@ export type OutboxItem = {
   entity: string;
   entityId: string;
   createdAt: string;
+  /** Default upsert. Delete removes the remote row keyed by user_id + client_id. */
+  operation: "upsert" | "delete";
 };
 
 /**
@@ -36,6 +38,7 @@ export type OutboxItem = {
  * record (for example editing the profile five times before the first sync) enqueues
  * five outbox rows, but uploading the current row once already captures all five edits —
  * the extra uploads would be harmless (upserts are idempotent) but wasteful.
+ * A later delete for the same record replaces an earlier upsert (and vice versa).
  */
 export function dedupeOutboxItems(items: OutboxItem[]): OutboxItem[] {
   const latestByKey = new Map<string, OutboxItem>();
@@ -59,6 +62,14 @@ export type SyncOutcome =
   | { kind: "network_error"; itemId: string; message: string }
   /** An outbox row references an entity the worker does not (yet) know how to upload. Leave it queued, keep going. */
   | { kind: "unsupported_entity"; itemId: string; entity: string };
+
+/** Entities that support remote delete-by-client_id. */
+export const DELETABLE_ENTITIES = ["nutrition_logs", "hydration_logs"] as const;
+export type DeletableEntity = (typeof DELETABLE_ENTITIES)[number];
+
+export function isDeletableEntity(entity: string): entity is DeletableEntity {
+  return (DELETABLE_ENTITIES as readonly string[]).includes(entity);
+}
 
 /** A batch-ending outcome means "stop processing further rows this pass," not "discard the queue." */
 export function shouldAbortBatch(outcome: SyncOutcome): boolean {
@@ -193,6 +204,7 @@ export type LocalNutritionLogRow = {
   fiber_g: number | null;
   sugar_g: number | null;
   sodium_mg: number | null;
+  notes: string | null;
   logged_at: string;
 };
 
@@ -214,6 +226,7 @@ export function buildNutritionLogPayload(row: LocalNutritionLogRow, userId: stri
     fiber_g: row.fiber_g,
     sugar_g: row.sugar_g,
     sodium_mg: row.sodium_mg,
+    notes: row.notes,
     logged_at: row.logged_at,
   };
 }
@@ -337,24 +350,21 @@ export type LocalActivityPointRow = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * `public.activity_points` has no `client_id`/unique constraint of its own (unlike every
- * other syncable table), so the only way to make re-uploading a route idempotent is to
- * set its primary key ourselves and upsert on `id`. That only works when the local point
- * id is already a real UUID. The app's id generator (`createId()`) uses
- * `crypto.randomUUID()` whenever it is available, which it is on this Expo/RN version, so
- * this should hold in practice — but a point whose local id is not UUID-shaped is skipped
- * here rather than sent with a value the column would reject, since there is no spare
- * column to carry a non-UUID client id.
+ * Maps a local GPS point to the remote `activity_points` row.
+ * `client_id` carries the local point id for idempotent upserts (`user_id, client_id`).
+ * When the local id is already a UUID it is also used as the remote primary key so
+ * re-uploads stay stable; otherwise the server assigns `id` and uniqueness is on client_id.
  */
-export function buildActivityPointPayload(row: LocalActivityPointRow, userId: string): Record<string, unknown> | null {
-  if (!UUID_PATTERN.test(row.id)) return null;
-  return {
-    id: row.id,
+export function buildActivityPointPayload(row: LocalActivityPointRow, userId: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
     user_id: userId,
+    client_id: row.id,
     session_client_id: row.session_id,
     latitude: row.latitude,
     longitude: row.longitude,
     altitude_meters: row.altitude_meters,
     recorded_at: new Date(row.recorded_at_ms).toISOString(),
   };
+  if (UUID_PATTERN.test(row.id)) payload.id = row.id;
+  return payload;
 }

@@ -161,6 +161,21 @@ describe("hydration reminders and quiet hours", () => {
     expect(plan.every((n) => n.id.startsWith("vitacore.hydration.20260929"))).toBe(true);
   });
 
+  it("skips workout and goal reminders whose time falls inside quiet hours", () => {
+    const quiet = { enabled: true, startMinutes: 18 * 60, endMinutes: 7 * 60 };
+    const plan = planReminders(
+      settings({
+        workout: { enabled: true, days: [1], timeMinutes: 20 * 60 },
+        goals: { enabled: true, timeMinutes: 19 * 60 },
+        quietHours: quiet,
+      }),
+      { now: monday9am, goals: openGoals },
+    ).notifications;
+    expect(plan.every((n) => n.kind === "hydration" || (n.kind !== "workout" && n.kind !== "goal"))).toBe(true);
+    expect(plan.some((n) => n.kind === "workout")).toBe(false);
+    expect(plan.some((n) => n.kind === "goal")).toBe(false);
+  });
+
   it("stays under the OS pending limit even in the busiest configuration", () => {
     const s = settings({
       workout: { enabled: true, days: [0, 1, 2, 3, 4, 5, 6], timeMinutes: 600 },

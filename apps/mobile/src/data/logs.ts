@@ -151,14 +151,13 @@ export async function updateFoodLog(
 }
 
 /**
- * Removes a food entry locally. If it had already synced to Supabase, the remote copy is
- * not deleted — there is no delete-sync protocol yet, only create/update. Any not-yet-synced
- * outbox entry for this id resolves itself harmlessly the next sync pass (the sync worker
- * already treats a missing local row as nothing-to-do).
+ * Removes a food entry locally and queues a remote delete for the same client_id.
+ * Not-yet-synced upserts for this id are superseded by the newer delete outbox row.
  */
 export async function deleteFoodLog(id: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync("DELETE FROM nutrition_logs WHERE id = ?", id);
+  await enqueue("nutrition_logs", id, "delete");
 }
 
 export async function waterForDay(day: string): Promise<number> {
@@ -191,10 +190,11 @@ export async function waterEntriesForDay(day: string): Promise<WaterLogRow[]> {
   return db.getAllAsync<WaterLogRow>("SELECT id, ml, logged_at FROM hydration_logs WHERE day = ? ORDER BY logged_at DESC", day);
 }
 
-/** Removes a water entry locally. Same remote-deletion caveat as deleteFoodLog. */
+/** Removes a water entry locally and queues a remote delete for the same client_id. */
 export async function deleteWaterLog(id: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync("DELETE FROM hydration_logs WHERE id = ?", id);
+  await enqueue("hydration_logs", id, "delete");
 }
 
 export async function saveSleep(input: { day: string; timezone: string; start: string; end: string }): Promise<void> {

@@ -224,6 +224,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       id TEXT PRIMARY KEY,
       entity TEXT NOT NULL,
       entity_id TEXT NOT NULL,
+      operation TEXT NOT NULL DEFAULT 'upsert',
       created_at TEXT NOT NULL,
       synced_at TEXT
     );
@@ -232,6 +233,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   // IF NOT EXISTS above never alters an existing table, so a new column needs an explicit,
   // idempotent migration here. Existing rows and all other data are untouched either way.
   await ensureColumn(db, "nutrition_logs", "notes", "TEXT");
+  await ensureColumn(db, "sync_outbox", "operation", "TEXT NOT NULL DEFAULT 'upsert'");
 
   database = withWebPersistence(db);
   return database;
@@ -352,6 +354,7 @@ export type OutboxRow = {
   id: string;
   entity: string;
   entity_id: string;
+  operation: "upsert" | "delete";
   created_at: string;
   synced_at: string | null;
 };
@@ -364,13 +367,18 @@ export function onOutboxChange(listener: () => void): () => void {
   return () => outboxListeners.delete(listener);
 }
 
-export async function enqueue(entity: string, entityId: string): Promise<void> {
+export async function enqueue(
+  entity: string,
+  entityId: string,
+  operation: "upsert" | "delete" = "upsert",
+): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    "INSERT INTO sync_outbox (id, entity, entity_id, created_at, synced_at) VALUES (?, ?, ?, ?, NULL)",
-    `${entity}:${entityId}:${Date.now()}`,
+    "INSERT INTO sync_outbox (id, entity, entity_id, operation, created_at, synced_at) VALUES (?, ?, ?, ?, ?, NULL)",
+    `${entity}:${entityId}:${operation}:${Date.now()}`,
     entity,
     entityId,
+    operation,
     new Date().toISOString(),
   );
   for (const listener of outboxListeners) listener();
@@ -378,7 +386,18 @@ export async function enqueue(entity: string, entityId: string): Promise<void> {
 
 export async function listPendingOutbox(): Promise<OutboxRow[]> {
   const db = await getDatabase();
-  return db.getAllAsync<OutboxRow>("SELECT * FROM sync_outbox WHERE synced_at IS NULL ORDER BY created_at ASC");
+  const rows = await db.getAllAsync<{
+    id: string;
+    entity: string;
+    entity_id: string;
+    operation: string | null;
+    created_at: string;
+    synced_at: string | null;
+  }>("SELECT * FROM sync_outbox WHERE synced_at IS NULL ORDER BY created_at ASC");
+  return rows.map((row) => ({
+    ...row,
+    operation: row.operation === "delete" ? "delete" : "upsert",
+  }));
 }
 
 /** Deletes a completed outbox row. This only ever removes sync bookkeeping, never the user's actual local record. */

@@ -1,11 +1,11 @@
 /**
  * Local-first outbox sync worker.
  *
- * Local SQLite stays the source of truth at all times. This module only ever reads local
- * rows and pushes copies of them to Supabase — it never deletes or rewrites local data,
- * and it never blocks any local read/write path. When there is no session, or no network,
- * or Supabase is not configured, every local feature keeps working exactly as it does
- * today; this file just quietly has nothing to do.
+ * Local SQLite stays the source of truth at all times. This module reads local rows and
+ * pushes upserts (or remote deletes for food/water) to Supabase — it never rewrites local
+ * feature data as part of a sync pass. When there is no session, or no network, or Supabase
+ * is not configured, every local feature keeps working exactly as it does today; this file
+ * just quietly has nothing to do.
  *
  * The actual decisions (what counts as an error worth stopping for, what an outbox row's
  * remote payload looks like, when a pass is allowed to start) live in
@@ -33,6 +33,7 @@ import {
   outboxIdsToClear,
   shouldAbortBatch,
   shouldMarkSynced,
+  isDeletableEntity,
   type LocalActivityPointRow,
   type LocalActivitySessionRow,
   type LocalHydrationLogRow,
@@ -89,6 +90,15 @@ async function uploadOne(client: SupabaseClient, userId: string, item: OutboxIte
   const db = await getDatabase();
 
   try {
+    if (item.operation === "delete") {
+      if (!isDeletableEntity(item.entity)) {
+        return { kind: "unsupported_entity", itemId: item.id, entity: item.entity };
+      }
+      const { error } = await client.from(item.entity).delete().eq("user_id", userId).eq("client_id", item.entityId);
+      if (error) throw error;
+      return { kind: "synced", itemId: item.id };
+    }
+
     switch (item.entity) {
       case "profile": {
         const row = await db.getFirstAsync<LocalProfileRow>("SELECT * FROM profile WHERE id = ?", item.entityId);
@@ -162,11 +172,11 @@ async function uploadOne(client: SupabaseClient, userId: string, item: OutboxIte
           "SELECT id, session_id, latitude, longitude, altitude_meters, recorded_at_ms FROM activity_points WHERE session_id = ?",
           item.entityId,
         );
-        const pointPayloads = points
-          .map((point) => buildActivityPointPayload(point, userId))
-          .filter((payload): payload is Record<string, unknown> => payload !== null);
+        const pointPayloads = points.map((point) => buildActivityPointPayload(point, userId));
         if (pointPayloads.length > 0) {
-          const { error: pointsError } = await client.from("activity_points").upsert(pointPayloads, { onConflict: "id" });
+          const { error: pointsError } = await client
+            .from("activity_points")
+            .upsert(pointPayloads, { onConflict: "user_id,client_id" });
           if (pointsError) throw pointsError;
         }
         return { kind: "synced", itemId: item.id };
@@ -229,6 +239,7 @@ export async function runSync(): Promise<void> {
       entity: row.entity,
       entityId: row.entity_id,
       createdAt: row.created_at,
+      operation: row.operation,
     }));
     const deduped = dedupeOutboxItems(items);
 

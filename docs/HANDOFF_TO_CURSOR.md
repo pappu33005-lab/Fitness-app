@@ -216,7 +216,7 @@ unconfirmed, not supported.
 | Retry | IMPLEMENTED; UNVERIFIED | 60s interval, no-op when nothing pending |
 | Offline behavior | IMPLEMENTED | Local-first; a failed sync pass never touches local data |
 | Idempotency | IMPLEMENTED; UNVERIFIED | `upsert(..., onConflict: 'user_id,client_id')` on every synced table except `activity_points`, which has no such column and instead reuses the local row's UUID as the remote primary key (works only when `createId()` produced a real UUID — flagged in code) |
-| **Delete synchronization** | **MISSING** | Phase 2 only ever supports create/update. Deleting a food or water entry (Phase 6) removes it locally only; an already-synced remote copy is left behind. Documented, not silently broken |
+| **Delete synchronization** | IMPLEMENTED (code) | Food/water deletes enqueue remote deletes by `user_id` + `client_id`. Live verification still requires Supabase. |
 
 ### Notifications
 | Feature | Status |

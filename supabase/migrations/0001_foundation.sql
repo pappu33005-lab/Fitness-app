@@ -57,6 +57,7 @@ create table public.nutrition_logs (
   fiber_g numeric,
   sugar_g numeric,
   sodium_mg numeric,
+  notes text,
   logged_at timestamptz not null,
   unique (user_id, client_id)
 );
@@ -125,10 +126,12 @@ create table public.activity_points (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
   session_client_id text not null,
+  client_id text not null,
   latitude double precision not null,
   longitude double precision not null,
   altitude_meters double precision,
-  recorded_at timestamptz not null
+  recorded_at timestamptz not null,
+  unique (user_id, client_id)
 );
 
 create table public.product_events (
