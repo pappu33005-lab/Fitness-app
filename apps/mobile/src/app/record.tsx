@@ -14,6 +14,7 @@ import {
   movingSeconds as computeMovingSeconds,
   paceSecondsPerKilometer,
   shouldAcceptLocationUpdate,
+  shouldAutoPauseForegroundRecording,
   trackDistanceMeters,
   type GeoPoint,
 } from "@vitacore/domain";
@@ -66,6 +67,12 @@ export default function RecordScreen() {
   const paused = useRef(false);
   const sessionId = useRef<string | null>(null);
   const stopping = useRef(false);
+  const backgroundEnabledRef = useRef(false);
+
+  function updateBackgroundEnabled(enabled: boolean) {
+    backgroundEnabledRef.current = enabled;
+    setBackgroundEnabled(enabled);
+  }
 
   function attachForegroundWatcher() {
     watch.current?.remove();
@@ -103,18 +110,50 @@ export default function RecordScreen() {
 
   // Foreground/background transitions: hand writing to the background task when the app
   // leaves the foreground, and pull in whatever it recorded when the app returns.
+  // Leaving this screen without active background tracking auto-pauses so points are not
+  // silently dropped; with Always/background tracking the native task continues.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) => {
       if (!sessionId.current) return;
       setForegroundWriterActive(next === "active");
-      if (next === "active") void reloadFromDevice();
+      if (next === "active") {
+        void reloadFromDevice();
+        return;
+      }
+      if (
+        shouldAutoPauseForegroundRecording({
+          hasActiveSession: sessionId.current != null,
+          alreadyPaused: paused.current,
+          backgroundTrackingActive: backgroundEnabledRef.current,
+          stopping: stopping.current,
+        })
+      ) {
+        paused.current = true;
+        setStatus("paused");
+        void setActiveActivitySession({ id: sessionId.current, paused: true });
+        setMessage(
+          "Recording paused because VitaCore left the foreground and Always location is off. Resume on this screen, or grant Always location for lock-screen tracking.",
+        );
+      }
     });
     return () => {
       subscription.remove();
-      // Leaving the screen never ends a recording. It only removes the foreground watcher.
       setForegroundWriterActive(false);
       watch.current?.remove();
       watch.current = null;
+      const id = sessionId.current;
+      if (
+        id &&
+        shouldAutoPauseForegroundRecording({
+          hasActiveSession: true,
+          alreadyPaused: paused.current,
+          backgroundTrackingActive: backgroundEnabledRef.current,
+          stopping: stopping.current,
+        })
+      ) {
+        paused.current = true;
+        void setActiveActivitySession({ id, paused: true });
+      }
     };
   }, []);
 
@@ -155,12 +194,25 @@ export default function RecordScreen() {
         }
         await attachForegroundWatcher();
         const background = await Location.getBackgroundPermissionsAsync();
-        setBackgroundEnabled(background.granted);
         if (background.granted) {
-          if (!(await isBackgroundLocationRunning())) await startBackgroundLocationUpdates();
-          setMessage("Resumed an activity that was still being recorded. Background location is on for this session.");
+          const running = (await isBackgroundLocationRunning()) || (await startBackgroundLocationUpdates()).started;
+          updateBackgroundEnabled(running);
+          setMessage(
+            active.paused
+              ? running
+                ? "Resumed a paused activity. Background location is on for this session."
+                : "Resumed a paused activity. Background location could not start — keep this screen open, or grant Always location."
+              : running
+                ? "Resumed an activity that was still being recorded. Background location is on for this session."
+                : "Resumed an activity. Background location could not start — keep this screen open while recording.",
+          );
         } else {
-          setMessage("Resumed an activity. Background location is off — keep this screen open while recording, or grant Always location for lock-screen tracking.");
+          updateBackgroundEnabled(false);
+          setMessage(
+            active.paused
+              ? "This activity was paused because recording left this screen without Always location. Resume here to continue, or grant Always location for lock-screen tracking."
+              : "Resumed an activity. Background location is off — keep this screen open while recording, or grant Always location for lock-screen tracking.",
+          );
         }
       } catch {
         if (!cancelled) setMessage("An unfinished activity could not be reopened.");
@@ -194,7 +246,6 @@ export default function RecordScreen() {
         return;
       }
       const background = await Location.requestBackgroundPermissionsAsync();
-      setBackgroundEnabled(background.granted);
 
       stopping.current = false;
       paused.current = false;
@@ -207,13 +258,17 @@ export default function RecordScreen() {
 
       if (background.granted) {
         const result = await startBackgroundLocationUpdates();
+        updateBackgroundEnabled(result.started);
         setMessage(
           result.started
             ? "Recording with background location. Lock-screen continuity depends on Always permission and has not been device-verified in this environment."
-            : `Background recording could not start (${result.reason}). Keep this screen open — points are only saved while the app is in the foreground.`,
+            : `Background recording could not start (${result.reason}). Keep this screen open — leaving it will pause recording.`,
         );
       } else {
-        setMessage("Background location is off. Points are saved only while this screen stays open in the foreground.");
+        updateBackgroundEnabled(false);
+        setMessage(
+          "Background location is off. Points are saved only while this screen stays open. Leaving the screen or app pauses recording so the route is not silently cut short.",
+        );
       }
       await attachForegroundWatcher();
     } finally {
@@ -249,7 +304,7 @@ export default function RecordScreen() {
       });
     }
     sessionId.current = null;
-    setBackgroundEnabled(false);
+    updateBackgroundEnabled(false);
     setStatus("saved");
   }
 
@@ -294,7 +349,10 @@ export default function RecordScreen() {
       ) : null}
       <View style={{ height: space.lg }} />
       {buildSplits(points, splitMeters).map((split) => (
-        <AppText key={split.index} variant="small">Split {split.index} · {formatPace(split.paceSecondsPerKilometer ?? 0, units)}</AppText>
+        <AppText key={split.index} variant="small">
+          Split {split.index} ·{" "}
+          {split.paceSecondsPerKilometer == null ? "pace unavailable across a pause" : formatPace(split.paceSecondsPerKilometer, units)}
+        </AppText>
       ))}
       {message ? <AppText variant="small" color={colors.textSecondary}>{message}</AppText> : null}
       <AppText variant="caption">{copy.mapTiles}</AppText>

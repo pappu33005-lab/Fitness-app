@@ -211,7 +211,7 @@ describe("concurrent sync protection", () => {
   });
 
   it("allows starting from every other status", () => {
-    for (const status of ["idle", "synced", "offline", "auth_required", "error"] as const) {
+    for (const status of ["idle", "synced", "offline", "auth_required", "error", "claim_required"] as const) {
       expect(canStartSync(status)).toBe(true);
     }
   });

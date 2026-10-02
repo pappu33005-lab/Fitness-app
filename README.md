@@ -86,3 +86,31 @@ Core planned features are implemented. Physical-device testing, live-service ver
 # Branch: cursor/verify-repair-baseline-8ec9
 # Status: CURRENT WORKING TREE CHECKPOINT
 # ============================================================
+
+# ============================================================
+# VITACORE PHASE A FINAL CHECKPOINT
+# ============================================================
+
+Status: PHASE A CODE-COMPLETE
+
+Phase A includes:
+- Critical and Important code fixes
+- Independent audit/fix cycle
+- Final nutrition serving-unit correction
+- GPS split pause correction
+- foreground GPS lifecycle handling
+- account-claim confirmation
+- web-preview transaction limitation documentation
+- automated verification
+
+Automated verification:
+- 212 tests passing
+- typecheck passing
+- mobile lint passing
+- Expo Doctor 21/21
+- Expo config passing
+- security scan clean
+
+Physical-device and live-service verification are NOT yet complete.
+
+This checkpoint represents the final Phase A code-complete source.

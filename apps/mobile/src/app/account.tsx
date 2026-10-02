@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { AppText, Button, Screen, TextField } from "@/components/ui";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
-import { useSyncStatus } from "@/data/sync";
+import { useSyncStatus, confirmLocalDataClaim } from "@/data/sync";
 import { copy } from "@/i18n/copy";
 import { space } from "@/design/tokens";
 import { useTheme } from "@/design/theme";
@@ -65,8 +65,8 @@ export default function AccountScreen() {
         error
           ? error.message
           : kind === "sign-up"
-            ? "Account created. Confirm the email if the project requires it, then local history can be uploaded as a backup."
-            : "Signed in. Local data uploads only when it belongs to this account.",
+            ? "Account created. Confirm the email if the project requires it. If this device already has local data, you must confirm associating it with this account before upload."
+            : "Signed in. If this device has unbound local data, confirm associating it with this account before upload.",
       );
     } finally {
       setBusy(false);
@@ -103,6 +103,21 @@ export default function AccountScreen() {
         <>
           <AppText variant="small">Signed in as {sessionEmail}</AppText>
           <View style={{ height: space.sm }} />
+          {sync.status === "claim_required" ? (
+            <>
+              <AppText variant="small" color={colors.accent}>{copy.localDataClaim}</AppText>
+              <View style={{ height: space.sm }} />
+              <Button
+                label={busy ? "Working…" : "Associate local data with this account"}
+                onPress={() => {
+                  setMessage("Associating local data with this account…");
+                  confirmLocalDataClaim();
+                }}
+                disabled={busy}
+              />
+              <View style={{ height: space.sm }} />
+            </>
+          ) : null}
           <Button label={busy ? "Working…" : "Sign out"} tone="secondary" onPress={() => void signOut()} disabled={busy} />
           <View style={{ height: space.lg }} />
         </>

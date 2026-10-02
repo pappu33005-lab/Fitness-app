@@ -422,6 +422,8 @@ export async function enqueue(
 export async function withOutboxTransaction(work: (db: SQLite.SQLiteDatabase) => Promise<void>): Promise<void> {
   const db = await getDatabase();
   // expo-sqlite supports withTransactionAsync on native; fall back to sequential work on web preview.
+  // Browser preview is not atomic: a crash mid-fallback can leave a local row without its outbox
+  // counterpart. Native iOS/Android keep a real SQLite transaction. See docs/limitations.md.
   const runner =
     typeof (db as { withTransactionAsync?: (fn: () => Promise<void>) => Promise<void> }).withTransactionAsync === "function"
       ? (fn: () => Promise<void>) => (db as { withTransactionAsync: (fn: () => Promise<void>) => Promise<void> }).withTransactionAsync(fn)

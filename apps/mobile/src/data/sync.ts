@@ -63,6 +63,8 @@ import {
 type Listener = () => void;
 let status: SyncStatus = "idle";
 let lastMessage: string | null = null;
+/** One-shot consent for binding unbound guest/local data to the current session user. */
+let claimConfirmedForSession = false;
 const listeners = new Set<Listener>();
 
 function setStatus(next: SyncStatus, message: string | null = null): void {
@@ -244,7 +246,7 @@ export async function runSync(): Promise<void> {
 
     const ownerId = await readSyncOwnerUserId();
     const binding = ownerId ? ({ status: "bound", userId: ownerId } as const) : ({ status: "unbound" } as const);
-    const decision = decideAccountSync(binding, userId);
+    const decision = decideAccountSync(binding, userId, { claimConfirmed: claimConfirmedForSession });
     if (decision.action === "skip_signed_out") {
       setStatus("idle");
       return;
@@ -256,8 +258,16 @@ export async function runSync(): Promise<void> {
       );
       return;
     }
+    if (decision.action === "await_claim_confirmation") {
+      setStatus(
+        "claim_required",
+        "This device has local data. Signing in will associate this local data with this account. Confirm on the Account screen to continue.",
+      );
+      return;
+    }
     if (decision.action === "claim_and_sync") {
       await writeSyncOwnerUserId(decision.bindUserId);
+      claimConfirmedForSession = false;
     }
 
     const pendingRows = await listPendingOutbox();
@@ -327,7 +337,10 @@ export function initSync(): () => void {
   if (client) {
     const { data } = client.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") kick(0);
-      if (event === "SIGNED_OUT") setStatus("idle");
+      if (event === "SIGNED_OUT") {
+        claimConfirmedForSession = false;
+        setStatus("idle");
+      }
     });
     unsubscribeAuth = () => data.subscription.unsubscribe();
   }
@@ -346,6 +359,16 @@ export function initSync(): () => void {
 
 /** For the manual "Sync now" affordance. Same worker, same guards — just triggered immediately instead of waiting on a timer. */
 export function syncNow(): void {
+  void runSync();
+}
+
+/**
+ * Explicit user confirmation that unbound local/guest data on this device may be
+ * associated with the currently signed-in account. Does not weaken mismatch blocking
+ * for an already-bound different user.
+ */
+export function confirmLocalDataClaim(): void {
+  claimConfirmedForSession = true;
   void runSync();
 }
 

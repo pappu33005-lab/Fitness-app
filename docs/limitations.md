@@ -6,6 +6,7 @@ The product is the iOS app and the Android app. The browser is a development pre
 
 - The browser has no Apple Health or Health Connect. Step and sleep cards say that.
 - The browser preview stores its guest session in an in-memory SQLite database plus an IndexedDB snapshot, because the OPFS path in `expo-sqlite` 57 throws `xFileControl` under Metro. That store is for clicking through screens. iOS and Android open `vitacore.db` on disk.
+- The browser preview's outbox helper runs feature writes sequentially when `withTransactionAsync` is unavailable. That path is not crash-atomic. Native SQLite keeps real transactions. Do not treat browser preview durability as production behavior.
 - The browser preview does not start a location watch. Background GPS is implemented in code for the iOS and Android builds (`expo-location` background updates through `expo-task-manager`, writing to the same activity tables as the foreground screen). It has not been run on a physical device, so keeping a route recording with the screen locked is unverified. Battery use has not been measured.
 - Reminder notifications (workout, hydration, daily goal) are implemented in code using `expo-notifications`, which was already a dependency and is already registered as a config plugin — no new package was needed. Scheduling, cancellation, and the settings screen have not been run on a device. See `docs/notifications.md`.
 - There is no true smart alarm. A smart alarm needs to read sleep signal overnight and choose a wake moment inside a window, which nothing in this app does. What exists is a fixed-time goal reminder.
@@ -63,6 +64,6 @@ Status: implemented in code. Not run against a live Supabase project or a real G
 ## Accounts
 
 - Core logging works before signup and stays in SQLite.
-- Local data is bound to the first signed-in account that claims it. A different account cannot upload that local outbox until the user signs back in as the owner or deletes local data.
+- Local data is bound to the first signed-in account only after the user explicitly confirms associating unbound guest/local data with that account. A different account cannot upload that local outbox until the user signs back in as the owner or deletes local data.
 - Upload of that history runs only after Supabase env vars exist and the person signs in. Cloud sync is backup/upload-only in this build — restoring cloud history onto a new phone is not implemented.
 - The outbox is written now. A live sync worker is not claiming success without those credentials.

@@ -1,4 +1,5 @@
 import { brandConfig } from "@vitacore/brand";
+import { openFoodFactsServingLabel, resolveServingQuantityGrams } from "@vitacore/domain";
 
 export type FoodHit = {
   id: string;
@@ -31,7 +32,8 @@ function fromNutriments(
   name: string,
   brand: string | null,
   id: string,
-  servingQuantityG: number | null,
+  servingQuantity: number | string | null | undefined,
+  servingQuantityUnit: string | null | undefined,
 ): FoodHit | null {
   const kcal = numberOrNull(nutriments["energy-kcal_100g"]);
   const protein = numberOrNull(nutriments.proteins_100g);
@@ -42,10 +44,11 @@ function fromNutriments(
     const saltG = numberOrNull(nutriments.salt_100g);
     return saltG == null ? null : saltG / 2.5;
   })();
-  // Prefer a product-declared serving size in grams when present and sensible; otherwise be honest that values are per 100 g.
-  const useServing = servingQuantityG != null && Number.isFinite(servingQuantityG) && servingQuantityG > 0 && servingQuantityG <= 1000;
+  // Only scale to a declared gram serving. Never treat serving/ml/oz/unknown as grams.
+  const servingQuantityG = resolveServingQuantityGrams(servingQuantity, servingQuantityUnit);
+  const useServing = servingQuantityG != null;
   const scale = useServing ? servingQuantityG / 100 : 1;
-  const servingLabel = useServing ? `${Math.round(servingQuantityG)} g serving` : "100 g";
+  const servingLabel = openFoodFactsServingLabel(servingQuantityG);
   return {
     id,
     name,
@@ -68,6 +71,9 @@ function fromNutriments(
   };
 }
 
+const OFF_PRODUCT_FIELDS =
+  "code,product_name,brands,nutriments,serving_quantity,serving_quantity_unit,serving_size";
+
 export async function searchOpenFoodFacts(query: string): Promise<FoodHit[]> {
   const url = new URL("https://world.openfoodfacts.org/cgi/search.pl");
   url.searchParams.set("search_terms", query);
@@ -75,7 +81,7 @@ export async function searchOpenFoodFacts(query: string): Promise<FoodHit[]> {
   url.searchParams.set("action", "process");
   url.searchParams.set("json", "1");
   url.searchParams.set("page_size", "20");
-  url.searchParams.set("fields", "code,product_name,brands,nutriments,serving_quantity,serving_size");
+  url.searchParams.set("fields", OFF_PRODUCT_FIELDS);
   const response = await fetch(url, {
     headers: { "User-Agent": brandConfig.openFoodFactsUserAgent },
   });
@@ -87,27 +93,31 @@ export async function searchOpenFoodFacts(query: string): Promise<FoodHit[]> {
       brands?: string;
       nutriments?: Nutriments;
       serving_quantity?: number | string;
+      serving_quantity_unit?: string;
       serving_size?: string;
     }[];
   };
   return (body.products ?? [])
-    .map((product) => {
-      const servingQty = numberOrNull(product.serving_quantity);
-      return fromNutriments(
+    .map((product) =>
+      fromNutriments(
         product.nutriments ?? {},
         product.product_name ?? "",
         product.brands ?? null,
         product.code ?? product.product_name ?? "",
-        servingQty,
-      );
-    })
+        product.serving_quantity,
+        product.serving_quantity_unit,
+      ),
+    )
     .filter((hit): hit is FoodHit => hit != null);
 }
 
 export async function productByBarcode(code: string): Promise<FoodHit | null> {
-  const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`, {
-    headers: { "User-Agent": brandConfig.openFoodFactsUserAgent },
-  });
+  const response = await fetch(
+    `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${encodeURIComponent(OFF_PRODUCT_FIELDS)}`,
+    {
+      headers: { "User-Agent": brandConfig.openFoodFactsUserAgent },
+    },
+  );
   if (!response.ok) throw new Error(`Open Food Facts returned ${response.status}.`);
   const body = (await response.json()) as {
     status?: number;
@@ -117,6 +127,8 @@ export async function productByBarcode(code: string): Promise<FoodHit | null> {
       brands?: string;
       nutriments?: Nutriments;
       serving_quantity?: number | string;
+      serving_quantity_unit?: string;
+      serving_size?: string;
     };
   };
   if (body.status !== 1 || !body.product) return null;
@@ -125,6 +137,7 @@ export async function productByBarcode(code: string): Promise<FoodHit | null> {
     body.product.product_name ?? "",
     body.product.brands ?? null,
     body.product.code ?? code,
-    numberOrNull(body.product.serving_quantity),
+    body.product.serving_quantity,
+    body.product.serving_quantity_unit,
   );
 }

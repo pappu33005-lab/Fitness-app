@@ -81,7 +81,7 @@ export function shouldMarkSynced(outcome: SyncOutcome): boolean {
   return outcome.kind === "synced" || outcome.kind === "skipped_missing_local_row";
 }
 
-export type SyncStatus = "idle" | "syncing" | "synced" | "offline" | "auth_required" | "error";
+export type SyncStatus = "idle" | "syncing" | "synced" | "offline" | "auth_required" | "error" | "claim_required";
 
 /**
  * Rolls a batch of per-item outcomes up into one status for the UI. `hadSession` is

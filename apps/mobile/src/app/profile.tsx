@@ -18,6 +18,7 @@ const SYNC_STATUS_COPY: Record<string, string> = {
   synced: "Everything on this device is backed up.",
   offline: "No connection right now. Nothing is lost — this will pick back up automatically.",
   auth_required: "Your sign-in needs to be refreshed before syncing can continue.",
+  claim_required: "Confirm on Account that local data on this device may be associated with the signed-in account.",
   error: "Some records could not sync yet. They stay on this device and will be retried.",
 };
 

@@ -47,7 +47,7 @@ export default function SearchScreen() {
       {error ? <AppText variant="small">{error}</AppText> : null}
       {hits.length === 0 && !error ? (
         <AppText variant="caption" color={colors.textSecondary}>
-          Results come from Open Food Facts. Nutrient values are per 100 g unless a product serving size is known.
+          Results come from Open Food Facts. Nutrient values are per 100 g unless a product serving size is known in grams.
         </AppText>
       ) : null}
       {hits.map((hit) => (
