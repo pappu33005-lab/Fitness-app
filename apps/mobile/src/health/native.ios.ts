@@ -1,14 +1,13 @@
 /** iOS development and release builds. HealthKit first, then the phone pedometer as its own labeled source. */
 import {
-  CategoryValueSleepAnalysis,
-  isHealthDataAvailableAsync,
-  queryCategorySamples,
-  queryStatisticsForQuantity,
-  queryWorkoutSamples,
-  requestAuthorization,
-} from "@kingstinct/react-native-healthkit";
-import { Pedometer } from "expo-sensors";
-import { addDays, deviceTimeZone, localDay, zonedDayBounds } from "@vitacore/domain";
+  addDays,
+  aggregatePlatformSleep,
+  deviceTimeZone,
+  localDay,
+  platformSleepQueryBounds,
+  zonedDayBounds,
+  type PlatformSleepInterval,
+} from "@vitacore/domain";
 import type {
   ActiveEnergyReading,
   DistanceReading,
@@ -19,6 +18,15 @@ import type {
   StepReading,
   WorkoutsReading,
 } from "./types";
+import {
+  CategoryValueSleepAnalysis,
+  isHealthDataAvailableAsync,
+  queryCategorySamples,
+  queryStatisticsForQuantity,
+  queryWorkoutSamples,
+  requestAuthorization,
+} from "@kingstinct/react-native-healthkit";
+import { Pedometer } from "expo-sensors";
 
 const READ = {
   toRead: [
@@ -111,55 +119,41 @@ export async function readSteps(): Promise<StepReading> {
 }
 
 export async function readSleep(): Promise<SleepReading> {
-  const end = new Date();
-  const start = new Date(end.getTime() - 36 * 60 * 60 * 1000);
   try {
+    const available = await isHealthDataAvailableAsync();
+    if (!available) {
+      return { status: "unavailable", detail: "Apple Health is not available on this device." };
+    }
+    const zone = deviceTimeZone();
+    const { start, end } = platformSleepQueryBounds(new Date(), zone);
     const samples = await queryCategorySamples("HKCategoryTypeIdentifierSleepAnalysis", {
       limit: 200,
       filter: { date: { startDate: start, endDate: end } },
     });
     if (samples.length === 0) {
-      return { status: "empty", sourceLabel: "Apple Health", detail: "Apple Health has no sleep samples for the last night." };
+      return { status: "empty", sourceLabel: "Apple Health", detail: "Apple Health has no sleep samples for last night." };
     }
-    const stages = { awake: 0, rem: 0, light: 0, deep: 0 };
-    let asleep = 0;
-    let inBed = 0;
-    let sawStage = false;
+    const intervals: PlatformSleepInterval[] = [];
     for (const sample of samples) {
-      const minutes = Math.max(0, (sample.endDate.getTime() - sample.startDate.getTime()) / 60000);
-      if (sample.value === CategoryValueSleepAnalysis.inBed) inBed += minutes;
-      if (sample.value === CategoryValueSleepAnalysis.awake) {
-        stages.awake += minutes;
-        sawStage = true;
-      }
-      if (sample.value === CategoryValueSleepAnalysis.asleepCore) {
-        stages.light += minutes;
-        asleep += minutes;
-        sawStage = true;
-      }
-      if (sample.value === CategoryValueSleepAnalysis.asleepDeep) {
-        stages.deep += minutes;
-        asleep += minutes;
-        sawStage = true;
-      }
-      if (sample.value === CategoryValueSleepAnalysis.asleepREM) {
-        stages.rem += minutes;
-        asleep += minutes;
-        sawStage = true;
-      }
-      if (sample.value === CategoryValueSleepAnalysis.asleepUnspecified) asleep += minutes;
+      const startMs = sample.startDate.getTime();
+      const endMs = sample.endDate.getTime();
+      if (sample.value === CategoryValueSleepAnalysis.inBed) intervals.push({ startMs, endMs, kind: "in_bed" });
+      if (sample.value === CategoryValueSleepAnalysis.awake) intervals.push({ startMs, endMs, kind: "awake" });
+      if (sample.value === CategoryValueSleepAnalysis.asleepCore) intervals.push({ startMs, endMs, kind: "light" });
+      if (sample.value === CategoryValueSleepAnalysis.asleepDeep) intervals.push({ startMs, endMs, kind: "deep" });
+      if (sample.value === CategoryValueSleepAnalysis.asleepREM) intervals.push({ startMs, endMs, kind: "rem" });
+      if (sample.value === CategoryValueSleepAnalysis.asleepUnspecified) intervals.push({ startMs, endMs, kind: "asleep" });
+    }
+    const aggregated = aggregatePlatformSleep({ intervals, now: new Date(), timeZone: zone });
+    if (aggregated.status === "empty") {
+      return { status: "empty", sourceLabel: "Apple Health", detail: aggregated.reason };
     }
     return {
       status: "value",
       sourceLabel: "Sleep · Apple Health",
-      asleepMinutes: Math.round(asleep),
-      inBedMinutes: Math.round(inBed || asleep),
-      stages: sawStage ? {
-        awake: Math.round(stages.awake),
-        rem: Math.round(stages.rem),
-        light: Math.round(stages.light),
-        deep: Math.round(stages.deep),
-      } : null,
+      asleepMinutes: aggregated.asleepMinutes,
+      inBedMinutes: aggregated.inBedMinutes,
+      stages: aggregated.stages,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Sleep could not be read from Apple Health.";

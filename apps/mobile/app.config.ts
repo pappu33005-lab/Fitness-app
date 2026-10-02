@@ -110,6 +110,13 @@ const config: ExpoConfig = {
   },
   extra: {
     brand: brand.name,
+    // Public runtime env expected at build time (see .env.example / README EAS section).
+    // Values come from process.env / EAS secrets — never hardcode secrets here.
+    easPublicEnv: [
+      "EXPO_PUBLIC_SUPABASE_URL",
+      "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "EXPO_PUBLIC_MAP_TILE_STYLE_URL",
+    ],
   },
 };
 

@@ -72,6 +72,7 @@ export default function CoachScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<ConversationSummary[] | null>(null);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const sendLock = useRef(false);
 
   useEffect(() => {
     const client = getSupabase();
@@ -159,60 +160,65 @@ export default function CoachScreen() {
   }
 
   async function send(text: string) {
-    if (configured === "unconfigured") {
-      setError(copy.coachNotConfigured);
-      return;
-    }
-    if (configured === "signed_out" || configured === "unknown") {
-      setError(copy.coachNeedsAccount);
-      return;
-    }
-    const client = getSupabase();
-    if (!client) {
-      setError(copy.coachNotConfigured);
-      return;
-    }
-    const { data: sessionData } = await client.auth.getSession();
-    if (!sessionData.session) {
-      setConfigured("signed_out");
-      setError(copy.coachNeedsAccount);
-      return;
-    }
+    if (sendLock.current || busy) return;
+    sendLock.current = true;
+    setBusy(true);
     setError(null);
     setFailedText(null);
-    const userTurn: ChatTurn = { id: nextTurnId(), role: "user", content: text };
-    setThread((current) => [...current, userTurn]);
-    setMessage("");
-    setBusy(true);
-    scrollToEnd();
-    await recordEvent("ai_interaction");
-    const { data, error: invokeError } = await client.functions.invoke("ai-coach", {
-      body: { message: text, conversationId: conversationId ?? undefined },
-    });
-    setBusy(false);
-    const success = replyFrom(data);
-    if (success) {
-      setThread((current) => [...current, { id: `${userTurn.id}-reply`, role: "assistant", content: success.reply }]);
-      if (success.conversationId) setConversationId(success.conversationId);
+    try {
+      if (configured === "unconfigured") {
+        setError(copy.coachNotConfigured);
+        return;
+      }
+      if (configured === "signed_out" || configured === "unknown") {
+        setError(copy.coachNeedsAccount);
+        return;
+      }
+      const client = getSupabase();
+      if (!client) {
+        setError(copy.coachNotConfigured);
+        return;
+      }
+      const { data: sessionData } = await client.auth.getSession();
+      if (!sessionData.session) {
+        setConfigured("signed_out");
+        setError(copy.coachNeedsAccount);
+        return;
+      }
+      const userTurn: ChatTurn = { id: nextTurnId(), role: "user", content: text };
+      setThread((current) => [...current, userTurn]);
+      setMessage("");
       scrollToEnd();
-      return;
+      await recordEvent("ai_interaction");
+      const { data, error: invokeError } = await client.functions.invoke("ai-coach", {
+        body: { message: text, conversationId: conversationId ?? undefined },
+      });
+      const success = replyFrom(data);
+      if (success) {
+        setThread((current) => [...current, { id: `${userTurn.id}-reply`, role: "assistant", content: success.reply }]);
+        if (success.conversationId) setConversationId(success.conversationId);
+        scrollToEnd();
+        return;
+      }
+      setThread((current) => current.filter((turn) => turn.id !== userTurn.id));
+      setFailedText(text);
+      const bodyError = errorFrom(data);
+      if (bodyError) {
+        if (/sign in|session is not valid|authentication/i.test(bodyError)) setConfigured("signed_out");
+        setError(bodyError);
+        return;
+      }
+      if (invokeError) {
+        const message = await messageFromInvokeError(invokeError);
+        if (/sign in|session|JWT|auth/i.test(message)) setConfigured("signed_out");
+        setError(message);
+        return;
+      }
+      setError(copy.coachUnavailable);
+    } finally {
+      sendLock.current = false;
+      setBusy(false);
     }
-    // The request failed: drop the optimistic user turn and offer Retry rather than showing an answer that was never given.
-    setThread((current) => current.filter((turn) => turn.id !== userTurn.id));
-    setFailedText(text);
-    const bodyError = errorFrom(data);
-    if (bodyError) {
-      if (/sign in|session is not valid|authentication/i.test(bodyError)) setConfigured("signed_out");
-      setError(bodyError);
-      return;
-    }
-    if (invokeError) {
-      const message = await messageFromInvokeError(invokeError);
-      if (/sign in|session|JWT|auth/i.test(message)) setConfigured("signed_out");
-      setError(message);
-      return;
-    }
-    setError(copy.coachUnavailable);
   }
 
   const usingRealData = thread.length > 0 || conversationId != null;

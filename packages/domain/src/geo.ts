@@ -104,6 +104,24 @@ export function durationSeconds(points: GeoPoint[]): number {
   return Math.max(0, (last.recordedAtMs - first.recordedAtMs) / 1000);
 }
 
+/**
+ * Moving time excludes long gaps between consecutive points (pauses, GPS dropouts).
+ * Wall-clock elapsed time remains `durationSeconds`. Pace and MET estimates should use
+ * moving time when points were not written while paused.
+ */
+export function movingSeconds(points: GeoPoint[], maxGapMs = 90_000): number {
+  if (points.length < 2) return 0;
+  let totalMs = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    if (!previous || !current) continue;
+    const gap = current.recordedAtMs - previous.recordedAtMs;
+    if (gap > 0 && gap <= maxGapMs) totalMs += gap;
+  }
+  return totalMs / 1000;
+}
+
 export function paceSecondsPerKilometer(distanceMeters: number, seconds: number): number | null {
   if (distanceMeters < 1 || seconds <= 0) return null;
   return seconds / (distanceMeters / 1000);

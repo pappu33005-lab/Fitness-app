@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { AppText, Button, Screen, TextField } from "@/components/ui";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
+import { useSyncStatus } from "@/data/sync";
 import { copy } from "@/i18n/copy";
 import { space } from "@/design/tokens";
 import { useTheme } from "@/design/theme";
 
 export default function AccountScreen() {
   const { colors } = useTheme();
+  const sync = useSyncStatus();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -63,8 +65,8 @@ export default function AccountScreen() {
         error
           ? error.message
           : kind === "sign-up"
-            ? "Account created. Confirm the email if the project requires it, then your local history can be uploaded."
-            : "Signed in.",
+            ? "Account created. Confirm the email if the project requires it, then local history can be uploaded as a backup."
+            : "Signed in. Local data uploads only when it belongs to this account.",
       );
     } finally {
       setBusy(false);
@@ -81,7 +83,11 @@ export default function AccountScreen() {
     try {
       const { error } = await client.auth.signOut();
       setPassword("");
-      setMessage(error ? error.message : "Signed out. Local data on this device is unchanged.");
+      setMessage(
+        error
+          ? error.message
+          : "Signed out. Local data on this device is unchanged and stays bound to the previous account for sync safety.",
+      );
     } finally {
       setBusy(false);
     }
@@ -101,6 +107,9 @@ export default function AccountScreen() {
           <View style={{ height: space.lg }} />
         </>
       ) : null}
+      {sync.status === "error" && sync.message ? (
+        <AppText variant="small" color={colors.accent}>{sync.message}</AppText>
+      ) : null}
       <TextField label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
       <View style={{ height: space.sm }} />
       <TextField label="Password" value={password} onChangeText={setPassword} secureTextEntry />
@@ -112,6 +121,7 @@ export default function AccountScreen() {
       <Button label="Email a reset link" tone="ghost" onPress={() => void act("reset")} disabled={busy || !configured} />
       <View style={{ height: space.md }} />
       <AppText variant="caption">Apple and Google sign-in need those providers enabled in Supabase and the native client ids. They are not wired until those exist, so this screen does not pretend a social login succeeded.</AppText>
+      <AppText variant="caption">If sync reports that local data belongs to another account, sign in as that account or delete local data from Profile first. Local data is never silently reassigned.</AppText>
       {message ? <AppText variant="small">{message}</AppText> : null}
     </Screen>
   );

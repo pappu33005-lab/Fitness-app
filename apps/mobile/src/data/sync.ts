@@ -26,6 +26,7 @@ import {
   buildWorkoutSetPayload,
   canStartSync,
   classifySupabaseError,
+  decideAccountSync,
   dedupeOutboxItems,
   deviceTimeZone,
   isSupportedEntity,
@@ -47,7 +48,15 @@ import {
   type SyncStatus,
 } from "@vitacore/domain";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
-import { clearOutboxItem, getDatabase, listPendingOutbox, onOutboxChange, type OutboxRow } from "./db";
+import {
+  clearOutboxItem,
+  getDatabase,
+  listPendingOutbox,
+  onOutboxChange,
+  readSyncOwnerUserId,
+  writeSyncOwnerUserId,
+  type OutboxRow,
+} from "./db";
 
 // --- Status store (no extra state-management dependency; React 19's useSyncExternalStore is enough) ---
 
@@ -233,6 +242,24 @@ export async function runSync(): Promise<void> {
     }
     const userId = session.user.id;
 
+    const ownerId = await readSyncOwnerUserId();
+    const binding = ownerId ? ({ status: "bound", userId: ownerId } as const) : ({ status: "unbound" } as const);
+    const decision = decideAccountSync(binding, userId);
+    if (decision.action === "skip_signed_out") {
+      setStatus("idle");
+      return;
+    }
+    if (decision.action === "block_mismatch") {
+      setStatus(
+        "error",
+        "Local data on this device belongs to a different account. Sign in as that account to sync, or delete local data from Profile first.",
+      );
+      return;
+    }
+    if (decision.action === "claim_and_sync") {
+      await writeSyncOwnerUserId(decision.bindUserId);
+    }
+
     const pendingRows = await listPendingOutbox();
     const items: OutboxItem[] = pendingRows.map((row: OutboxRow) => ({
       id: row.id,
@@ -300,6 +327,7 @@ export function initSync(): () => void {
   if (client) {
     const { data } = client.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") kick(0);
+      if (event === "SIGNED_OUT") setStatus("idle");
     });
     unsubscribeAuth = () => data.subscription.unsubscribe();
   }

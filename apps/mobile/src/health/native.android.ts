@@ -1,6 +1,14 @@
 /** Android development and release builds. Health Connect first, then the phone pedometer as its own labeled source. */
 import { Pedometer } from "expo-sensors";
-import { addDays, deviceTimeZone, localDay, zonedDayBounds } from "@vitacore/domain";
+import {
+  addDays,
+  aggregatePlatformSleep,
+  deviceTimeZone,
+  localDay,
+  platformSleepQueryBounds,
+  zonedDayBounds,
+  type PlatformSleepInterval,
+} from "@vitacore/domain";
 import { initialize, readRecords, requestPermission, SleepStageType } from "react-native-health-connect";
 import type {
   ActiveEnergyReading,
@@ -101,60 +109,48 @@ export async function readSteps(): Promise<StepReading> {
 const STAGE_AWAKE_IN_BED = 7;
 
 export async function readSleep(): Promise<SleepReading> {
-  const end = new Date();
-  const start = new Date(end.getTime() - 36 * 60 * 60 * 1000);
   try {
     const ready = await initialize();
     if (!ready) {
       return { status: "unavailable", detail: "Health Connect is not available on this Android device." };
     }
+    const zone = deviceTimeZone();
+    const { start, end } = platformSleepQueryBounds(new Date(), zone);
     const page = await readRecords("SleepSession", {
       timeRangeFilter: { operator: "between", startTime: start.toISOString(), endTime: end.toISOString() },
     });
     if (page.records.length === 0) {
-      return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no sleep session for the last night." };
+      return { status: "empty", sourceLabel: "Health Connect", detail: "Health Connect has no sleep session for last night." };
     }
-    const stages = { awake: 0, rem: 0, light: 0, deep: 0 };
-    let asleep = 0;
-    let inBed = 0;
-    let sawStage = false;
+    const intervals: PlatformSleepInterval[] = [];
     for (const record of page.records) {
-      const sessionMinutes = Math.max(0, (new Date(record.endTime).getTime() - new Date(record.startTime).getTime()) / 60000);
-      inBed += sessionMinutes;
+      const sessionStart = new Date(record.startTime).getTime();
+      const sessionEnd = new Date(record.endTime).getTime();
+      // Session envelope is in-bed only. Without stages we do NOT invent asleep minutes.
+      intervals.push({ startMs: sessionStart, endMs: sessionEnd, kind: "in_bed" });
       for (const stage of record.stages ?? []) {
-        const minutes = Math.max(0, (new Date(stage.endTime).getTime() - new Date(stage.startTime).getTime()) / 60000);
-        sawStage = true;
+        const startMs = new Date(stage.startTime).getTime();
+        const endMs = new Date(stage.endTime).getTime();
         if (stage.stage === SleepStageType.AWAKE || stage.stage === STAGE_AWAKE_IN_BED || stage.stage === SleepStageType.OUT_OF_BED) {
-          stages.awake += minutes;
+          intervals.push({ startMs, endMs, kind: "awake" });
         }
         if (stage.stage === SleepStageType.LIGHT || stage.stage === SleepStageType.SLEEPING) {
-          stages.light += minutes;
-          asleep += minutes;
+          intervals.push({ startMs, endMs, kind: "light" });
         }
-        if (stage.stage === SleepStageType.DEEP) {
-          stages.deep += minutes;
-          asleep += minutes;
-        }
-        if (stage.stage === SleepStageType.REM) {
-          stages.rem += minutes;
-          asleep += minutes;
-        }
+        if (stage.stage === SleepStageType.DEEP) intervals.push({ startMs, endMs, kind: "deep" });
+        if (stage.stage === SleepStageType.REM) intervals.push({ startMs, endMs, kind: "rem" });
       }
-      if (!record.stages?.length) asleep += sessionMinutes;
+    }
+    const aggregated = aggregatePlatformSleep({ intervals, now: new Date(), timeZone: zone });
+    if (aggregated.status === "empty") {
+      return { status: "empty", sourceLabel: "Health Connect", detail: aggregated.reason };
     }
     return {
       status: "value",
       sourceLabel: "Sleep · Health Connect",
-      asleepMinutes: Math.round(asleep),
-      inBedMinutes: Math.round(inBed),
-      stages: sawStage
-        ? {
-            awake: Math.round(stages.awake),
-            rem: Math.round(stages.rem),
-            light: Math.round(stages.light),
-            deep: Math.round(stages.deep),
-          }
-        : null,
+      asleepMinutes: aggregated.asleepMinutes,
+      inBedMinutes: aggregated.inBedMinutes,
+      stages: aggregated.stages,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Sleep could not be read from Health Connect.";

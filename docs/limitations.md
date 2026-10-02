@@ -55,7 +55,7 @@ Status: implemented in code. Not run against a live Supabase project or a real G
 ## Progress
 
 - Charts use meals, water, sleep notes, GPS activities, and finished strength sets stored on the device. A day with no record is a gap, not a zero.
-- Editing or deleting a food or water entry only changes the local device. If that entry had already synced to Supabase, the remote copy is not deleted or updated — there is no delete-sync protocol yet, only create/update. This is a known gap, not a bug.
+- Editing or deleting a food or water entry updates the local device and enqueues a remote upsert/delete for the same `client_id` when the account binding allows sync.
 - Editing a food entry changes its stored totals (name, meal, macros, notes) directly. It does not store or let you change a separate per-serving amount — only the final logged totals are kept locally, the same as before this phase.
 - Food added by search or barcode scan is always logged to today; the nutrition screen's date picker is for reviewing and editing past days, not for logging into them. A manually-entered food (the "Add food manually" screen) does respect the selected day.
 - Step history is not stored, so steps are not charted. The profile holds one current weight, so there is no weight trend.
@@ -63,4 +63,6 @@ Status: implemented in code. Not run against a live Supabase project or a real G
 ## Accounts
 
 - Core logging works before signup and stays in SQLite.
-- Upload of that history runs only after Supabase env vars exist and the person signs in. The outbox is written now. A live sync worker is not claiming success without those credentials.
+- Local data is bound to the first signed-in account that claims it. A different account cannot upload that local outbox until the user signs back in as the owner or deletes local data.
+- Upload of that history runs only after Supabase env vars exist and the person signs in. Cloud sync is backup/upload-only in this build — restoring cloud history onto a new phone is not implemented.
+- The outbox is written now. A live sync worker is not claiming success without those credentials.

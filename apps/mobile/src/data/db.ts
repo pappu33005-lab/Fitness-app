@@ -287,14 +287,23 @@ function mapProfile(row: ProfileRow): LocalProfile {
 
 export async function readProfile(): Promise<LocalProfile | null> {
   const db = await getDatabase();
-  const row = await db.getFirstAsync<ProfileRow>("SELECT * FROM profile LIMIT 1");
+  // Deterministic: prefer the most recently completed onboarding row, then any row by id.
+  const row = await db.getFirstAsync<ProfileRow>(
+    `SELECT * FROM profile
+     ORDER BY CASE WHEN onboarding_completed_at IS NULL THEN 1 ELSE 0 END,
+              onboarding_completed_at DESC,
+              id ASC
+     LIMIT 1`,
+  );
   return row ? mapProfile(row) : null;
 }
 
 export async function saveProfile(profile: LocalProfile): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(
-    `INSERT INTO profile (
+  await withOutboxTransaction(async (db) => {
+    // Keep a single local profile identity: drop any other rows before upserting.
+    await db.runAsync("DELETE FROM profile WHERE id != ?", profile.id);
+    await db.runAsync(
+      `INSERT INTO profile (
       id, display_name, age_years, sex, height_cm, weight_kg, fitness_level, activity_level, goal,
       unit_system, workout_preference, dietary_json, sleep_target_minutes, hydration_target_ml, step_goal,
       onboarding_completed_at
@@ -315,24 +324,25 @@ export async function saveProfile(profile: LocalProfile): Promise<void> {
       hydration_target_ml = excluded.hydration_target_ml,
       step_goal = excluded.step_goal,
       onboarding_completed_at = excluded.onboarding_completed_at`,
-    profile.id,
-    profile.displayName,
-    profile.ageYears,
-    profile.sex,
-    profile.heightCm,
-    profile.weightKg,
-    profile.fitnessLevel,
-    profile.activityLevel,
-    profile.goal,
-    profile.unitSystem,
-    profile.workoutPreference,
-    JSON.stringify(profile.dietary),
-    profile.sleepTargetMinutes,
-    profile.hydrationTargetMl,
-    profile.stepGoal,
-    profile.onboardingCompletedAt,
-  );
-  await enqueue("profile", profile.id);
+      profile.id,
+      profile.displayName,
+      profile.ageYears,
+      profile.sex,
+      profile.heightCm,
+      profile.weightKg,
+      profile.fitnessLevel,
+      profile.activityLevel,
+      profile.goal,
+      profile.unitSystem,
+      profile.workoutPreference,
+      JSON.stringify(profile.dietary),
+      profile.sleepTargetMinutes,
+      profile.hydrationTargetMl,
+      profile.stepGoal,
+      profile.onboardingCompletedAt,
+    );
+    await enqueueOn(db, "profile", profile.id);
+  });
 }
 
 export async function readPreference(key: string): Promise<string | null> {
@@ -348,6 +358,23 @@ export async function writePreference(key: string, value: string): Promise<void>
     key,
     value,
   );
+}
+
+const SYNC_OWNER_KEY = "sync_owner_user_id";
+
+/** Who this device database is allowed to upload as. Null = unbound guest data. */
+export async function readSyncOwnerUserId(): Promise<string | null> {
+  return readPreference(SYNC_OWNER_KEY);
+}
+
+export async function writeSyncOwnerUserId(userId: string): Promise<void> {
+  await writePreference(SYNC_OWNER_KEY, userId);
+}
+
+/** Clears only the account binding (local feature data stays). Used after an intentional wipe path resets ownership. */
+export async function clearSyncOwnerUserId(): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync("DELETE FROM preferences WHERE key = ?", SYNC_OWNER_KEY);
 }
 
 export type OutboxRow = {
@@ -367,6 +394,10 @@ export function onOutboxChange(listener: () => void): () => void {
   return () => outboxListeners.delete(listener);
 }
 
+function newOutboxId(entity: string, entityId: string, operation: string): string {
+  return `${entity}:${entityId}:${operation}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export async function enqueue(
   entity: string,
   entityId: string,
@@ -375,13 +406,57 @@ export async function enqueue(
   const db = await getDatabase();
   await db.runAsync(
     "INSERT INTO sync_outbox (id, entity, entity_id, operation, created_at, synced_at) VALUES (?, ?, ?, ?, ?, NULL)",
-    `${entity}:${entityId}:${operation}:${Date.now()}`,
+    newOutboxId(entity, entityId, operation),
     entity,
     entityId,
     operation,
     new Date().toISOString(),
   );
   for (const listener of outboxListeners) listener();
+}
+
+/**
+ * Runs feature mutations and outbox inserts inside one SQLite transaction so a crash
+ * cannot leave a changed local row without its outbox counterpart (or the reverse).
+ */
+export async function withOutboxTransaction(work: (db: SQLite.SQLiteDatabase) => Promise<void>): Promise<void> {
+  const db = await getDatabase();
+  // expo-sqlite supports withTransactionAsync on native; fall back to sequential work on web preview.
+  const runner =
+    typeof (db as { withTransactionAsync?: (fn: () => Promise<void>) => Promise<void> }).withTransactionAsync === "function"
+      ? (fn: () => Promise<void>) => (db as { withTransactionAsync: (fn: () => Promise<void>) => Promise<void> }).withTransactionAsync(fn)
+      : async (fn: () => Promise<void>) => fn();
+  let notify = false;
+  await runner(async () => {
+    const enqueueInTx = async (entity: string, entityId: string, operation: "upsert" | "delete" = "upsert") => {
+      await db.runAsync(
+        "INSERT INTO sync_outbox (id, entity, entity_id, operation, created_at, synced_at) VALUES (?, ?, ?, ?, ?, NULL)",
+        newOutboxId(entity, entityId, operation),
+        entity,
+        entityId,
+        operation,
+        new Date().toISOString(),
+      );
+      notify = true;
+    };
+    (db as SQLite.SQLiteDatabase & { __enqueueInTx?: typeof enqueueInTx }).__enqueueInTx = enqueueInTx;
+    try {
+      await work(db);
+    } finally {
+      delete (db as SQLite.SQLiteDatabase & { __enqueueInTx?: typeof enqueueInTx }).__enqueueInTx;
+    }
+  });
+  if (notify) for (const listener of outboxListeners) listener();
+}
+
+/** Prefer in-transaction enqueue when inside `withOutboxTransaction`; otherwise enqueue normally. */
+export async function enqueueOn(db: SQLite.SQLiteDatabase, entity: string, entityId: string, operation: "upsert" | "delete" = "upsert"): Promise<void> {
+  const inTx = (db as SQLite.SQLiteDatabase & { __enqueueInTx?: typeof enqueue }).__enqueueInTx;
+  if (inTx) {
+    await inTx(entity, entityId, operation);
+    return;
+  }
+  await enqueue(entity, entityId, operation);
 }
 
 export async function listPendingOutbox(): Promise<OutboxRow[]> {

@@ -51,12 +51,23 @@ pnpm --filter @vitacore/mobile lint
 ## What is not connected
 
 - Supabase, until `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are set. The service role / secret key never goes in the app.
+- Cloud sync in this build is **upload/backup only** for the signed-in account that owns the local database binding. Restoring cloud data onto a new phone is not implemented yet.
 - The coach, until you set `GEMINI_API_KEY` as an Edge Function secret and deploy `ai-coach`. The default model id is `gemini-3.8-flash`. Google's 1 Oct 2026 docs list paid introductory pricing for that model, not a confirmed free quota. `GEMINI_MODEL` can override the id. The app does not enable billing and does not hold the key. Multi-turn history is implemented in code and has not been run against a live project. See `docs/coach.md`.
 - Base-map tiles, until a development build includes `@maplibre/maplibre-react-native` 11.4.0 (already in `package.json` and `app.config.ts`) and `EXPO_PUBLIC_MAP_TILE_STYLE_URL` points at an HTTPS MapLibre style you have licensed. Routes are always drawn as an outline from the stored points. Tile rendering has not been run on a device. `expo-maps` was not added because it pulls Google Maps onto Android. See `docs/maps.md`.
 - Rain, ocean, forest, and spoken stories. Those slots are empty on purpose.
 - Snoring classification. Consent and retention rules exist. No model is bundled, and the microphone is not requested.
 - Direct WHOOP, Fitbit, and Garmin APIs. New Garmin developer access is paused, and the legacy Fitbit Web API is shutting down in favor of the Google Health API, which needs a restricted-scope review; WHOOP requires its own registered developer app and a paying WHOOP member. None of this was independently re-verified this phase — see `docs/wearables.md`. Data appears only if the person already syncs that device into Apple Health or Health Connect.
 - Apple Watch as its own app. Watch samples show up only when HealthKit already has them. A `health.tsx` screen now shows real connection status for Apple Health/Health Connect plus this wearable picture — see `docs/health.md`.
+
+## EAS environment variables
+
+For every EAS build profile, supply these **public** runtime variables (EAS Secrets / Environment, not committed):
+
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `EXPO_PUBLIC_MAP_TILE_STYLE_URL` (optional; empty = route outline only)
+
+Never put `GEMINI_API_KEY`, service-role keys, or `sb_secret_*` in mobile/EAS client env. Gemini belongs only on the Supabase Edge Function.
 
 See `docs/versions.md` for the exact dependency choices.
 
@@ -67,3 +78,11 @@ See `docs/versions.md` for the exact dependency choices.
 **Purpose:** Marks the version after the final Cursor code-completion audit.
 
 Core planned features are implemented. Physical-device testing, live-service verification, and deployment are intentionally pending.
+
+# ============================================================
+# VITACORE CHECKPOINT
+# Critical + Important fix pass pushed successfully
+# Commit: Fix critical and important pre-verification issues
+# Branch: cursor/verify-repair-baseline-8ec9
+# Status: CURRENT WORKING TREE CHECKPOINT
+# ============================================================

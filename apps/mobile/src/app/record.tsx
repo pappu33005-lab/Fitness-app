@@ -5,13 +5,13 @@ import { useLocalSearchParams } from "expo-router";
 import {
   buildSplits,
   deviceTimeZone,
-  durationSeconds,
   elevationGainMeters,
   estimatedActivityKcal,
   formatClockDuration,
   formatDistance,
   formatPace,
   mergeGeoPoints,
+  movingSeconds as computeMovingSeconds,
   paceSecondsPerKilometer,
   shouldAcceptLocationUpdate,
   trackDistanceMeters,
@@ -58,6 +58,9 @@ export default function RecordScreen() {
   const [status, setStatus] = useState<"idle" | "recording" | "paused" | "saved">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [points, setPoints] = useState<GeoPoint[]>([]);
+  const [resumeReady, setResumeReady] = useState(false);
+  const [backgroundEnabled, setBackgroundEnabled] = useState(false);
+  const [starting, setStarting] = useState(false);
   const started = useRef<string | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
   const paused = useRef(false);
@@ -119,75 +122,103 @@ export default function RecordScreen() {
   useEffect(() => {
     let cancelled = false;
     async function resume() {
-      if (!capabilities.backgroundLocation) return;
-      const active = await getActiveActivitySession();
-      if (!active || cancelled) return;
-      const info = await activitySessionInfo(active.id);
-      if (!info) {
-        // Stale marker: the session is gone or already closed. Make sure nothing keeps recording.
-        await setActiveActivitySession(null);
-        await stopBackgroundLocationUpdates();
-        return;
-      }
-      sessionId.current = active.id;
-      started.current = info.startedAt;
-      paused.current = active.paused;
-      const stored = await activityPointsForSession(active.id);
-      if (cancelled) return;
-      setPicked(routeKind(info.kind));
-      setPoints(stored);
-      setStatus(active.paused ? "paused" : "recording");
-      const foreground = await Location.getForegroundPermissionsAsync();
-      if (!foreground.granted) {
-        setMessage("Location access was turned off while this activity was recording. The route so far is kept; you can stop and save it.");
-        return;
-      }
-      await attachForegroundWatcher();
-      if (!(await isBackgroundLocationRunning())) {
+      try {
+        if (!capabilities.backgroundLocation) {
+          if (!cancelled) setResumeReady(true);
+          return;
+        }
+        const active = await getActiveActivitySession();
+        if (!active || cancelled) {
+          if (!cancelled) setResumeReady(true);
+          return;
+        }
+        const info = await activitySessionInfo(active.id);
+        if (!info) {
+          await setActiveActivitySession(null);
+          await stopBackgroundLocationUpdates();
+          if (!cancelled) setResumeReady(true);
+          return;
+        }
+        sessionId.current = active.id;
+        started.current = info.startedAt;
+        paused.current = active.paused;
+        const stored = await activityPointsForSession(active.id);
+        if (cancelled) return;
+        setPicked(routeKind(info.kind));
+        setPoints(stored);
+        setStatus(active.paused ? "paused" : "recording");
+        const foreground = await Location.getForegroundPermissionsAsync();
+        if (!foreground.granted) {
+          setMessage("Location access was turned off while this activity was recording. The route so far is kept; you can stop and save it.");
+          setResumeReady(true);
+          return;
+        }
+        await attachForegroundWatcher();
         const background = await Location.getBackgroundPermissionsAsync();
-        if (background.granted) await startBackgroundLocationUpdates();
+        setBackgroundEnabled(background.granted);
+        if (background.granted) {
+          if (!(await isBackgroundLocationRunning())) await startBackgroundLocationUpdates();
+          setMessage("Resumed an activity that was still being recorded. Background location is on for this session.");
+        } else {
+          setMessage("Resumed an activity. Background location is off — keep this screen open while recording, or grant Always location for lock-screen tracking.");
+        }
+      } catch {
+        if (!cancelled) setMessage("An unfinished activity could not be reopened.");
+      } finally {
+        if (!cancelled) setResumeReady(true);
       }
-      setMessage("Resumed an activity that was still being recorded.");
     }
-    void resume().catch(() => setMessage("An unfinished activity could not be reopened."));
+    void resume();
     return () => {
       cancelled = true;
     };
   }, []);
 
   async function start() {
+    if (!resumeReady || starting || sessionId.current || status === "recording" || status === "paused") return;
     if (!capabilities.backgroundLocation) {
       setMessage(copy.gpsNativeOnly);
       return;
     }
-    setMessage("Location is used to draw the route of this activity. It is not collected beforehand.");
-    const foreground = await Location.requestForegroundPermissionsAsync();
-    if (!foreground.granted) {
-      setMessage("Location is off, so a route cannot be recorded.");
-      return;
-    }
-    const background = await Location.requestBackgroundPermissionsAsync();
+    setStarting(true);
+    try {
+      const existing = await getActiveActivitySession();
+      if (existing) {
+        setMessage("An activity is already in progress. Resume it or stop it before starting another.");
+        return;
+      }
+      setMessage("Location is used to draw the route of this activity. It is not collected beforehand.");
+      const foreground = await Location.requestForegroundPermissionsAsync();
+      if (!foreground.granted) {
+        setMessage("Location is off, so a route cannot be recorded.");
+        return;
+      }
+      const background = await Location.requestBackgroundPermissionsAsync();
+      setBackgroundEnabled(background.granted);
 
-    stopping.current = false;
-    paused.current = false;
-    started.current = new Date().toISOString();
-    setPoints([]);
-    const id = await beginActivitySession({ kind, startedAt: started.current, timezone: deviceTimeZone() });
-    sessionId.current = id;
-    await setActiveActivitySession({ id, paused: false });
-    setStatus("recording");
+      stopping.current = false;
+      paused.current = false;
+      started.current = new Date().toISOString();
+      setPoints([]);
+      const id = await beginActivitySession({ kind, startedAt: started.current, timezone: deviceTimeZone() });
+      sessionId.current = id;
+      await setActiveActivitySession({ id, paused: false });
+      setStatus("recording");
 
-    if (background.granted) {
-      const result = await startBackgroundLocationUpdates();
-      setMessage(
-        result.started
-          ? "Recording. The route should keep recording if the screen locks. This has not been verified on every device."
-          : `Background recording could not start (${result.reason}). The route records while this screen is open.`,
-      );
-    } else {
-      setMessage("Background location is off. The route records while this screen is open.");
+      if (background.granted) {
+        const result = await startBackgroundLocationUpdates();
+        setMessage(
+          result.started
+            ? "Recording with background location. Lock-screen continuity depends on Always permission and has not been device-verified in this environment."
+            : `Background recording could not start (${result.reason}). Keep this screen open — points are only saved while the app is in the foreground.`,
+        );
+      } else {
+        setMessage("Background location is off. Points are saved only while this screen stays open in the foreground.");
+      }
+      await attachForegroundWatcher();
+    } finally {
+      setStarting(false);
     }
-    await attachForegroundWatcher();
   }
 
   async function togglePause(next: boolean) {
@@ -214,15 +245,16 @@ export default function RecordScreen() {
       await finishActivitySession(id, {
         endedAt: new Date().toISOString(),
         distanceMeters: trackDistanceMeters(finalPoints),
-        movingSeconds: Math.round(durationSeconds(finalPoints)),
+        movingSeconds: Math.round(computeMovingSeconds(finalPoints)),
       });
     }
     sessionId.current = null;
+    setBackgroundEnabled(false);
     setStatus("saved");
   }
 
   const distance = trackDistanceMeters(points);
-  const seconds = durationSeconds(points);
+  const seconds = computeMovingSeconds(points);
   const pace = paceSecondsPerKilometer(distance, seconds);
   const gain = elevationGainMeters(points);
   const energy = estimatedActivityKcal({ kind, durationSeconds: seconds, weightKg: profile?.weightKg ?? null });
@@ -242,10 +274,17 @@ export default function RecordScreen() {
       <AppText variant="metric" style={{ fontSize: 42 }}>{formatDistance(distance, units)}</AppText>
       <AppText variant="small">{formatClockDuration(seconds)}{pace ? ` · ${formatPace(pace, units)}` : ""}</AppText>
       <AppText variant="caption">{gain == null ? "Elevation was not reported by this device." : `Elevation gain ${Math.round(gain)} m`}</AppText>
-      <AppText variant="caption">Heart rate and cadence are not attached unless a health source provides them during the session. None is assumed.</AppText>
+      <AppText variant="caption">Moving time excludes long pauses between points. Heart rate and cadence are not attached unless a health source provides them.</AppText>
       {energy ? <AppText variant="caption">{energy.kcal} kcal. {energy.disclaimer}</AppText> : null}
+      {(status === "recording" || status === "paused") && !backgroundEnabled ? (
+        <AppText variant="caption" color={colors.accent}>
+          Foreground-only recording: keep VitaCore open. Lock-screen tracking needs Always location permission.
+        </AppText>
+      ) : null}
       <View style={{ height: space.md }} />
-      {status === "idle" || status === "saved" ? <Button label="Start" onPress={() => void start()} /> : null}
+      {status === "idle" || status === "saved" ? (
+        <Button label={starting || !resumeReady ? "Starting…" : "Start"} onPress={() => void start()} disabled={starting || !resumeReady} />
+      ) : null}
       {status === "recording" ? <Button label="Pause" tone="secondary" onPress={() => void togglePause(true)} /> : null}
       {status === "paused" ? <Button label="Resume" onPress={() => void togglePause(false)} /> : null}
       {status === "recording" || status === "paused" ? (
