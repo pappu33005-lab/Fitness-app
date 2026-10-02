@@ -219,6 +219,14 @@ export async function latestManualSleep() {
   );
 }
 
+export async function sleepForDay(day: string) {
+  const db = await getDatabase();
+  return db.getFirstAsync<{ day: string; asleep_start: string; asleep_end: string; source: string }>(
+    "SELECT day, asleep_start, asleep_end, source FROM sleep_sessions WHERE day = ? ORDER BY asleep_end DESC LIMIT 1",
+    day,
+  );
+}
+
 export async function createWorkout(): Promise<string> {
   const id = createId();
   const db = await getDatabase();

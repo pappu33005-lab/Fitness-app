@@ -59,3 +59,11 @@ pnpm --filter @vitacore/mobile lint
 - Apple Watch as its own app. Watch samples show up only when HealthKit already has them. A `health.tsx` screen now shows real connection status for Apple Health/Health Connect plus this wearable picture — see `docs/health.md`.
 
 See `docs/versions.md` for the exact dependency choices.
+
+## VitaCore — Cursor Code-Complete Checkpoint
+
+**Status:** Pre-verification code-complete checkpoint  
+**Date:** 2026-10-02  
+**Purpose:** Marks the version after the final Cursor code-completion audit.
+
+Core planned features are implemented. Physical-device testing, live-service verification, and deployment are intentionally pending.

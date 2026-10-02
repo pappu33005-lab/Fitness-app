@@ -12,6 +12,7 @@ export default function AccountScreen() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const configured = supabaseConfigStatus() === "ready";
 
   useEffect(() => {
@@ -36,14 +37,38 @@ export default function AccountScreen() {
       setMessage("Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY. The service role key does not belong in the app.");
       return;
     }
-    if (kind === "reset") {
-      const { error } = await client.auth.resetPasswordForEmail(email);
-      setMessage(error ? error.message : "If the address is registered, a reset message is on its way.");
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail.includes("@")) {
+      setMessage("Enter a valid email address.");
       return;
     }
-    const method = kind === "sign-up" ? client.auth.signUp({ email, password }) : client.auth.signInWithPassword({ email, password });
-    const { error } = await method;
-    setMessage(error ? error.message : kind === "sign-up" ? "Account created. Confirm the email if the project requires it, then your local history can be uploaded." : "Signed in.");
+    if (kind !== "reset" && password.length < 6) {
+      setMessage("Use a password with at least 6 characters.");
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (kind === "reset") {
+        const { error } = await client.auth.resetPasswordForEmail(trimmedEmail);
+        setMessage(error ? error.message : "If the address is registered, a reset message is on its way.");
+        return;
+      }
+      const method =
+        kind === "sign-up"
+          ? client.auth.signUp({ email: trimmedEmail, password })
+          : client.auth.signInWithPassword({ email: trimmedEmail, password });
+      const { error } = await method;
+      setMessage(
+        error
+          ? error.message
+          : kind === "sign-up"
+            ? "Account created. Confirm the email if the project requires it, then your local history can be uploaded."
+            : "Signed in.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function signOut() {
@@ -52,9 +77,14 @@ export default function AccountScreen() {
       setMessage("Cloud sign-in is waiting on the Supabase environment variables.");
       return;
     }
-    const { error } = await client.auth.signOut();
-    setPassword("");
-    setMessage(error ? error.message : "Signed out. Local data on this device is unchanged.");
+    setBusy(true);
+    try {
+      const { error } = await client.auth.signOut();
+      setPassword("");
+      setMessage(error ? error.message : "Signed out. Local data on this device is unchanged.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -67,7 +97,7 @@ export default function AccountScreen() {
         <>
           <AppText variant="small">Signed in as {sessionEmail}</AppText>
           <View style={{ height: space.sm }} />
-          <Button label="Sign out" tone="secondary" onPress={() => void signOut()} />
+          <Button label={busy ? "Working…" : "Sign out"} tone="secondary" onPress={() => void signOut()} disabled={busy} />
           <View style={{ height: space.lg }} />
         </>
       ) : null}
@@ -75,11 +105,11 @@ export default function AccountScreen() {
       <View style={{ height: space.sm }} />
       <TextField label="Password" value={password} onChangeText={setPassword} secureTextEntry />
       <View style={{ height: space.md }} />
-      <Button label="Create account" onPress={() => void act("sign-up")} />
+      <Button label={busy ? "Working…" : "Create account"} onPress={() => void act("sign-up")} disabled={busy || !configured} />
       <View style={{ height: space.sm }} />
-      <Button label="Sign in" tone="secondary" onPress={() => void act("sign-in")} />
+      <Button label={busy ? "Working…" : "Sign in"} tone="secondary" onPress={() => void act("sign-in")} disabled={busy || !configured} />
       <View style={{ height: space.sm }} />
-      <Button label="Email a reset link" tone="ghost" onPress={() => void act("reset")} />
+      <Button label="Email a reset link" tone="ghost" onPress={() => void act("reset")} disabled={busy || !configured} />
       <View style={{ height: space.md }} />
       <AppText variant="caption">Apple and Google sign-in need those providers enabled in Supabase and the native client ids. They are not wired until those exist, so this screen does not pretend a social login succeeded.</AppText>
       {message ? <AppText variant="small">{message}</AppText> : null}

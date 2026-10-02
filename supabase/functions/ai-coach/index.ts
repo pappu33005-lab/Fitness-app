@@ -103,13 +103,29 @@ type CoachContext = {
   recentActivity: CoachActivityFact[];
 };
 
+/** Calendar day for an ISO instant in `timeZone`. Falls back to the UTC date prefix if the zone is invalid. */
+function coachDayLabel(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 /**
  * Turns whatever of `context` is actually populated into plain-language facts for the
  * model's system instruction. Every line either states a real value or explicitly says
  * that value is not recorded — nothing is guessed, and a missing field never becomes a
  * silently-omitted line (which the model could not distinguish from "not asked about").
+ * Workout/activity dates use the profile timezone so near-midnight sessions are not
+ * labeled with the UTC calendar day.
  */
-function buildContextFacts(context: CoachContext): string[] {
+function buildContextFacts(context: CoachContext, timeZone = "UTC"): string[] {
   const p = context.profile;
   const facts: string[] = [
     p?.ageYears != null ? `Age: ${p.ageYears} years` : "Age is not saved.",
@@ -132,10 +148,10 @@ function buildContextFacts(context: CoachContext): string[] {
       ? `Most recently recorded sleep (${context.latestSleep.day}): ${Math.round((context.latestSleep.asleepMinutes / 60) * 10) / 10} h asleep.`
       : "No sleep session has been recorded and synced.",
     context.recentWorkouts.length
-      ? `Recent finished workouts: ${context.recentWorkouts.map((w) => `${w.startedAt.slice(0, 10)} (${w.setCount} set${w.setCount === 1 ? "" : "s"})`).join("; ")}.`
+      ? `Recent finished workouts: ${context.recentWorkouts.map((w) => `${coachDayLabel(w.startedAt, timeZone)} (${w.setCount} set${w.setCount === 1 ? "" : "s"})`).join("; ")}.`
       : "No finished workout has been recorded and synced.",
     context.recentActivity.length
-      ? `Recent GPS activity: ${context.recentActivity.map((a) => `${a.kind} on ${a.startedAt.slice(0, 10)}, ${(a.distanceMeters / 1000).toFixed(1)} km`).join("; ")}.`
+      ? `Recent GPS activity: ${context.recentActivity.map((a) => `${a.kind} on ${coachDayLabel(a.startedAt, timeZone)}, ${(a.distanceMeters / 1000).toFixed(1)} km`).join("; ")}.`
       : "No GPS activity has been recorded and synced.",
     "Step count, heart rate, heart-rate variability, and a recovery score are not available to this assistant, even if the phone has recently measured them. Only what the person states in the conversation is known — treat it as their report, not a measurement you have access to.",
     "A precise daily calorie target is calculated in the VitaCore app itself from the profile fields above and is not recalculated here. If asked for a number, give only a clearly-labeled rough estimate and point to the Nutrition tab for the app's own figure.",
@@ -349,7 +365,7 @@ Deno.serve(async (request) => {
     })),
   };
 
-  const facts = buildContextFacts(context);
+  const facts = buildContextFacts(context, timezone);
   const reminder = safetyReminderFor(detectHighRiskTopics(message));
   const systemInstruction = [safety, "", "Context:", ...facts, ...(reminder ? ["", reminder] : [])].join("\n");
   const contents = toGeminiContents(windowConversationHistory(history), message);

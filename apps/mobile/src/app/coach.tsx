@@ -74,17 +74,20 @@ export default function CoachScreen() {
   const [historyBusy, setHistoryBusy] = useState(false);
 
   useEffect(() => {
-    if (configured !== "unknown") return;
     const client = getSupabase();
     if (!client) return;
     let cancelled = false;
     void client.auth.getSession().then(({ data }) => {
       if (!cancelled) setConfigured(data.session ? "ready" : "signed_out");
     });
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      setConfigured(session ? "ready" : "signed_out");
+    });
     return () => {
       cancelled = true;
+      data.subscription.unsubscribe();
     };
-  }, [configured]);
+  }, []);
 
   function scrollToEnd() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -94,7 +97,18 @@ export default function CoachScreen() {
     const client = getSupabase();
     if (!client) return;
     setHistoryBusy(true);
-    const { data: conversations } = await client.from("ai_conversations").select("id, created_at").order("created_at", { ascending: false }).limit(20);
+    const { data: conversations, error: conversationError } = await client
+      .from("ai_conversations")
+      .select("id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (conversationError) {
+      setHistoryBusy(false);
+      setError(conversationError.message.includes("JWT") || conversationError.message.includes("auth")
+        ? copy.coachNeedsAccount
+        : "Past conversations could not be loaded.");
+      return;
+    }
     const { data: firstMessages } = await client
       .from("ai_messages")
       .select("conversation_id, content, role, created_at")
@@ -149,13 +163,19 @@ export default function CoachScreen() {
       setError(copy.coachNotConfigured);
       return;
     }
-    if (configured === "signed_out") {
+    if (configured === "signed_out" || configured === "unknown") {
       setError(copy.coachNeedsAccount);
       return;
     }
     const client = getSupabase();
     if (!client) {
       setError(copy.coachNotConfigured);
+      return;
+    }
+    const { data: sessionData } = await client.auth.getSession();
+    if (!sessionData.session) {
+      setConfigured("signed_out");
+      setError(copy.coachNeedsAccount);
       return;
     }
     setError(null);
@@ -182,11 +202,14 @@ export default function CoachScreen() {
     setFailedText(text);
     const bodyError = errorFrom(data);
     if (bodyError) {
+      if (/sign in|session is not valid|authentication/i.test(bodyError)) setConfigured("signed_out");
       setError(bodyError);
       return;
     }
     if (invokeError) {
-      setError(await messageFromInvokeError(invokeError));
+      const message = await messageFromInvokeError(invokeError);
+      if (/sign in|session|JWT|auth/i.test(message)) setConfigured("signed_out");
+      setError(message);
       return;
     }
     setError(copy.coachUnavailable);

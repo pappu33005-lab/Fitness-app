@@ -7,7 +7,7 @@ import { deleteFoodLog, foodLogById, updateFoodLog, type MealName } from "@/data
 import { useTheme } from "@/design/theme";
 import { space } from "@/design/tokens";
 
-/** Edits an existing entry's stored totals (name, meal, macros, notes). Servings are not editable here — see updateFoodLog. */
+/** Edits an existing entry's stored totals (name, meal, macros, sugar, sodium, notes). Servings are not editable here — see updateFoodLog. */
 export default function EditFoodScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -34,6 +34,8 @@ export default function EditFoodScreen() {
         carbsG: row.carbs_g == null ? "" : String(row.carbs_g),
         fatG: row.fat_g == null ? "" : String(row.fat_g),
         fiberG: row.fiber_g == null ? "" : String(row.fiber_g),
+        sugarG: row.sugar_g == null ? "" : String(row.sugar_g),
+        sodiumMg: row.sodium_mg == null ? "" : String(row.sodium_mg),
         notes: row.notes ?? "",
       });
       setState("ready");
@@ -61,8 +63,8 @@ export default function EditFoodScreen() {
         carbsG: values.carbsG,
         fatG: values.fatG,
         fiberG: values.fiberG,
-        sugarG: null,
-        sodiumMg: null,
+        sugarG: values.sugarG,
+        sodiumMg: values.sodiumMg,
         notes: values.notes,
       });
       router.back();
@@ -75,8 +77,14 @@ export default function EditFoodScreen() {
   async function remove() {
     if (!id) return;
     setBusy(true);
-    await deleteFoodLog(id);
-    router.back();
+    setError(null);
+    try {
+      await deleteFoodLog(id);
+      router.back();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "This entry could not be deleted.");
+      setBusy(false);
+    }
   }
 
   if (state === "loading") return <Screen><LoadingState label="Opening this entry…" /></Screen>;

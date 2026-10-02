@@ -13,6 +13,8 @@ export type FoodEntryDraft = {
   carbsG: string;
   fatG: string;
   fiberG: string;
+  sugarG: string;
+  sodiumMg: string;
   notes: string;
 };
 
@@ -24,11 +26,13 @@ export type FoodEntryValues = {
   carbsG: number | null;
   fatG: number | null;
   fiberG: number | null;
+  sugarG: number | null;
+  sodiumMg: number | null;
   notes: string | null;
 };
 
 export function blankFoodEntryDraft(meal: MealName = "lunch"): FoodEntryDraft {
-  return { meal, name: "", kcal: "", proteinG: "", carbsG: "", fatG: "", fiberG: "", notes: "" };
+  return { meal, name: "", kcal: "", proteinG: "", carbsG: "", fatG: "", fiberG: "", sugarG: "", sodiumMg: "", notes: "" };
 }
 
 /** A name is required; every numeric field is otherwise handled by sanitizeNutrientInput, so this can never produce NaN. */
@@ -43,6 +47,8 @@ export function draftToValues(draft: FoodEntryDraft): FoodEntryValues | null {
     carbsG: sanitizeNutrientInput(draft.carbsG),
     fatG: sanitizeNutrientInput(draft.fatG),
     fiberG: sanitizeNutrientInput(draft.fiberG),
+    sugarG: sanitizeNutrientInput(draft.sugarG),
+    sodiumMg: sanitizeNutrientInput(draft.sodiumMg),
     notes: draft.notes.trim() || null,
   };
 }
@@ -93,6 +99,14 @@ export function FoodEntryForm({
         </View>
       </View>
       <TextField label="Fiber (g)" value={draft.fiberG} onChangeText={(fiberG) => onChange({ ...draft, fiberG })} keyboardType="decimal-pad" placeholder="optional" />
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <View style={{ flex: 1 }}>
+          <TextField label="Sugar (g)" value={draft.sugarG} onChangeText={(sugarG) => onChange({ ...draft, sugarG })} keyboardType="decimal-pad" placeholder="optional" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <TextField label="Sodium (mg)" value={draft.sodiumMg} onChangeText={(sodiumMg) => onChange({ ...draft, sodiumMg })} keyboardType="decimal-pad" placeholder="optional" />
+        </View>
+      </View>
       <TextField label="Notes" value={draft.notes} onChangeText={(notes) => onChange({ ...draft, notes })} placeholder="optional" />
       {error ? <AppText variant="small" color={colors.accent}>{error}</AppText> : null}
       <Button label={busy ? "Saving…" : submitLabel} onPress={onSubmit} disabled={busy || draft.name.trim().length === 0} />

@@ -10,7 +10,7 @@ import { dedupeDailySteps } from "./samples";
 import { scoreSleep } from "./sleep";
 import { soundModelAvailability } from "./sound";
 import { bestLifts, fillDailyRange, recordedSummary, seriesForRange, sleepMinutesByDay } from "./history";
-import { localDay, zonedDayBounds } from "./time";
+import { localDay, overnightSleepBounds, zonedDayBounds } from "./time";
 import { cmToFeetAndInches, feetAndInchesToCm, formatDuration, lbToKg } from "./units";
 
 const adult = {
@@ -243,5 +243,41 @@ describe("product boundaries", () => {
         hasActivityToday: false,
       }),
     ).toBe("log_meal");
+  });
+});
+
+describe("overnightSleepBounds", () => {
+  it("places bedtime on the previous day for a normal overnight sleep ending on the wake day", () => {
+    const result = overnightSleepBounds({
+      wakeDay: "2026-10-02",
+      bedTime: "23:00",
+      wakeTime: "07:00",
+      timeZone: "UTC",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.day).toBe("2026-10-02");
+    expect(result.startIso).toBe("2026-10-01T23:00:00.000Z");
+    expect(result.endIso).toBe("2026-10-02T07:00:00.000Z");
+    expect(result.asleepMinutes).toBe(8 * 60);
+  });
+
+  it("keeps same-day naps on the wake day", () => {
+    const result = overnightSleepBounds({
+      wakeDay: "2026-10-02",
+      bedTime: "14:00",
+      wakeTime: "15:30",
+      timeZone: "UTC",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.startIso).toBe("2026-10-02T14:00:00.000Z");
+    expect(result.endIso).toBe("2026-10-02T15:30:00.000Z");
+    expect(result.asleepMinutes).toBe(90);
+  });
+
+  it("rejects identical or invalid clock times", () => {
+    expect(overnightSleepBounds({ wakeDay: "2026-10-02", bedTime: "07:00", wakeTime: "07:00", timeZone: "UTC" }).ok).toBe(false);
+    expect(overnightSleepBounds({ wakeDay: "2026-10-02", bedTime: "25:00", wakeTime: "07:00", timeZone: "UTC" }).ok).toBe(false);
   });
 });

@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { formatWeight } from "@vitacore/domain";
 import { AppText, Button, Screen, TextField } from "@/components/ui";
 import { addSet, finishWorkout, setsForSession } from "@/data/logs";
 import { exercises } from "@/exercises/catalog";
 import { successHaptic } from "@/lib/haptics";
 import { useAppState } from "@/data/app-state";
 import { space } from "@/design/tokens";
+import { useTheme } from "@/design/theme";
 
 export default function WorkoutScreen() {
+  const router = useRouter();
+  const { colors } = useTheme();
   const { id, exercise } = useLocalSearchParams<{ id: string; exercise?: string }>();
   const { haptics, profile } = useAppState();
   const selected = exercises.find((item) => item.id === exercise) ?? exercises[0];
@@ -16,6 +20,10 @@ export default function WorkoutScreen() {
   const [weight, setWeight] = useState("");
   const [sets, setSets] = useState<Awaited<ReturnType<typeof setsForSession>>>([]);
   const [rest, setRest] = useState<number | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const units = profile?.unitSystem ?? "metric";
 
   const load = useCallback(() => {
     if (id) void setsForSession(id).then(setSets);
@@ -37,24 +45,32 @@ export default function WorkoutScreen() {
       <View style={{ height: space.md }} />
       <TextField label="Reps" value={reps} onChangeText={setReps} keyboardType="numeric" />
       <View style={{ height: space.sm }} />
-      <TextField label={profile?.unitSystem === "imperial" ? "Weight (lb)" : "Weight (kg)"} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" />
+      <TextField label={units === "imperial" ? "Weight (lb)" : "Weight (kg)"} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" />
       <View style={{ height: space.md }} />
       <Button
-        label="Complete set"
+        label={adding ? "Saving set…" : "Complete set"}
+        disabled={adding || finishing}
         onPress={() => {
-          if (!id || !selected) return;
-          const kg = profile?.unitSystem === "imperial" && weight ? Number(weight) / 2.2046226218 : weight ? Number(weight) : null;
+          if (!id || !selected || adding || finishing) return;
+          const kg = units === "imperial" && weight ? Number(weight) / 2.2046226218 : weight ? Number(weight) : null;
+          setAdding(true);
+          setError(null);
           void addSet({
             sessionId: id,
             exerciseId: selected.id,
             exerciseName: selected.name,
             reps: Number(reps) || null,
             weightKg: kg,
-          }).then(() => {
-            void successHaptic(haptics);
-            setRest(90);
-            load();
-          });
+          })
+            .then(() => {
+              void successHaptic(haptics);
+              setRest(90);
+              load();
+            })
+            .catch((reason: unknown) => {
+              setError(reason instanceof Error ? reason.message : "This set could not be saved.");
+            })
+            .finally(() => setAdding(false));
         }}
       />
       {rest != null ? (
@@ -65,10 +81,32 @@ export default function WorkoutScreen() {
       ) : null}
       <View style={{ height: space.lg }} />
       {sets.map((set) => (
-        <AppText key={set.id} variant="small">{set.exercise_name} set {set.set_index} · {set.reps ?? "—"} reps · {set.weight_kg ?? "—"} kg</AppText>
+        <AppText key={set.id} variant="small">
+          {set.exercise_name} set {set.set_index} · {set.reps ?? "—"} reps ·{" "}
+          {set.weight_kg == null ? "—" : formatWeight(set.weight_kg, units)}
+        </AppText>
       ))}
       <View style={{ height: space.lg }} />
-      <Button label="Finish session" tone="secondary" onPress={() => id && void finishWorkout(id)} />
+      {error ? <AppText variant="small" color={colors.accent}>{error}</AppText> : null}
+      <Button
+        label={finishing ? "Saving…" : "Finish session"}
+        tone="secondary"
+        disabled={finishing || adding}
+        onPress={() => {
+          if (!id || finishing || adding) return;
+          setFinishing(true);
+          setError(null);
+          void finishWorkout(id)
+            .then(() => {
+              void successHaptic(haptics);
+              router.replace("/workout");
+            })
+            .catch((reason: unknown) => {
+              setFinishing(false);
+              setError(reason instanceof Error ? reason.message : "This session could not be finished.");
+            });
+        }}
+      />
     </Screen>
   );
 }

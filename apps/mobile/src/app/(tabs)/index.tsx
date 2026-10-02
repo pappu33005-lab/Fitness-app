@@ -55,6 +55,7 @@ export default function HomeScreen() {
   const [kcal, setKcal] = useState(0);
   const [water, setWater] = useState(0);
   const [moved, setMoved] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,19 +73,25 @@ export default function HomeScreen() {
     ])
       .then(([foods, ml, activities, workouts, stepReading, sleepReading, heartRateReading, hrvReading]) => {
         if (cancelled) return;
+        setLoadError(null);
         setKcal(foods.reduce((sum, food) => sum + food.kcal, 0));
         setWater(ml);
-        setMoved(activities.some((item) => item.started_at.slice(0, 10) === selected) || workouts.some((item) => item.started_at.slice(0, 10) === selected));
+        setMoved(
+          activities.some((item) => localDay(new Date(item.started_at), zone) === selected) ||
+            workouts.some((item) => localDay(new Date(item.started_at), zone) === selected),
+        );
         setSteps(stepReading);
         setPlatformSleep(sleepReading);
         setHeartRate(heartRateReading);
         setHrv(hrvReading);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setLoadError("Today's cards could not be loaded from this device.");
+      });
     return () => {
       cancelled = true;
     };
-  }, [selected, today]);
+  }, [selected, today, zone]);
 
   const sleepScore = scoreSleep({
     asleepMinutes: platformSleep?.status === "value" ? platformSleep.asleepMinutes : null,
@@ -118,9 +125,15 @@ export default function HomeScreen() {
       })
     : null;
   const platform = Platform.OS === "ios" || Platform.OS === "android" || Platform.OS === "web" ? Platform.OS : "other";
+  const healthState =
+    steps?.status === "value" || steps?.status === "empty"
+      ? "ready"
+      : steps?.status === "unavailable"
+        ? "unavailable"
+        : "unavailable";
   const action = recommendNextAction({
     platform,
-    health: steps?.status === "value" ? "ready" : "unavailable",
+    health: healthState,
     hasMealToday: kcal > 0,
     hasActivityToday: moved,
   });
@@ -131,6 +144,23 @@ export default function HomeScreen() {
     start_activity: { title: "Record a session", body: "A walk, run, ride, or hike uses your location only after you start it." },
     review_today: { title: "Today is logged", body: "You can review the meal and the session, or leave the rest alone." },
   }[action];
+
+  const sleepValue =
+    selected !== today
+      ? "Select today"
+      : platformSleep?.status === "value"
+        ? formatDuration(platformSleep.asleepMinutes)
+        : platformSleep?.status === "empty"
+          ? "No sleep recorded"
+          : "Unavailable";
+  const sleepDetail =
+    selected !== today
+      ? "Platform sleep is only read for today."
+      : platformSleep?.status === "value"
+        ? platformSleep.stages
+          ? `${platformSleep.sourceLabel}. Stages from the health store.`
+          : `${platformSleep.sourceLabel}. ${copy.stagesNeedSource}`
+        : platformSleep?.detail ?? copy.stagesNeedSource;
 
   return (
     <Screen>
@@ -146,12 +176,13 @@ export default function HomeScreen() {
       <View style={{ height: space.xl }} />
       <WeekStrip days={weekDays(selected, zone)} onSelect={setSelected} />
       <View style={{ height: space.xl }} />
+      {loadError ? <AppText variant="small" color={colors.accent}>{loadError}</AppText> : null}
       <Card>
         <AppText variant="label">Today</AppText>
         <StatRow
           label="Sleep"
-          value="Not measured here"
-          detail={copy.stagesNeedSource}
+          value={sleepValue}
+          detail={sleepDetail}
         />
         <StatRow
           label="Recovery"
