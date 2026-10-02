@@ -3,7 +3,9 @@ export const copy = {
   disclaimer:
     "This app provides wellness and fitness information and is not a substitute for professional medical advice.",
   guestCloud:
-    "Workouts, meals, and settings stay on this device until you create an account. Cloud sync and a new phone need that account.",
+    "Workouts, meals, and settings stay on this device until you create an account. This device may already have local data — signing in associates that local data with the account only after you confirm. Restoring a cloud backup onto a new phone is not available in this build — keep this device, or export is not provided yet.",
+  localDataClaim:
+    "This device has local data. Signing in will associate this local data with this account.",
   healthWeb:
     "Apple Health and Health Connect are available in the iOS and Android apps. This browser session cannot read them, and nothing is estimated in their place.",
   healthModule:

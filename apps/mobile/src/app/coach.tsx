@@ -5,9 +5,14 @@ import { brandConfig } from "@vitacore/brand";
 import { AppText, Button, Card, ErrorState, LoadingState, Screen, TextField } from "@/components/ui";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
 import { recordEvent } from "@/data/logs";
+import { createId } from "@/lib/id";
 import { copy } from "@/i18n/copy";
 import { useTheme } from "@/design/theme";
 import { space } from "@/design/tokens";
+
+function nextTurnId(): string {
+  return `pending-${createId()}`;
+}
 
 const suggestions = [
   "What should I do today?",
@@ -55,7 +60,9 @@ export default function CoachScreen() {
   const { colors } = useTheme();
   const scrollRef = useRef<ScrollView>(null);
 
-  const [configured, setConfigured] = useState<"unknown" | "unconfigured" | "signed_out" | "ready">("unknown");
+  const [configured, setConfigured] = useState<"unknown" | "unconfigured" | "signed_out" | "ready">(() =>
+    supabaseConfigStatus() !== "ready" || !getSupabase() ? "unconfigured" : "unknown",
+  );
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [thread, setThread] = useState<ChatTurn[]>([]);
   const [message, setMessage] = useState("");
@@ -65,18 +72,22 @@ export default function CoachScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<ConversationSummary[] | null>(null);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const sendLock = useRef(false);
 
   useEffect(() => {
-    if (supabaseConfigStatus() !== "ready") {
-      setConfigured("unconfigured");
-      return;
-    }
     const client = getSupabase();
-    if (!client) {
-      setConfigured("unconfigured");
-      return;
-    }
-    void client.auth.getSession().then(({ data }) => setConfigured(data.session ? "ready" : "signed_out"));
+    if (!client) return;
+    let cancelled = false;
+    void client.auth.getSession().then(({ data }) => {
+      if (!cancelled) setConfigured(data.session ? "ready" : "signed_out");
+    });
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      setConfigured(session ? "ready" : "signed_out");
+    });
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   function scrollToEnd() {
@@ -87,7 +98,18 @@ export default function CoachScreen() {
     const client = getSupabase();
     if (!client) return;
     setHistoryBusy(true);
-    const { data: conversations } = await client.from("ai_conversations").select("id, created_at").order("created_at", { ascending: false }).limit(20);
+    const { data: conversations, error: conversationError } = await client
+      .from("ai_conversations")
+      .select("id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (conversationError) {
+      setHistoryBusy(false);
+      setError(conversationError.message.includes("JWT") || conversationError.message.includes("auth")
+        ? copy.coachNeedsAccount
+        : "Past conversations could not be loaded.");
+      return;
+    }
     const { data: firstMessages } = await client
       .from("ai_messages")
       .select("conversation_id, content, role, created_at")
@@ -138,51 +160,65 @@ export default function CoachScreen() {
   }
 
   async function send(text: string) {
-    if (configured === "unconfigured") {
-      setError(copy.coachNotConfigured);
-      return;
-    }
-    if (configured === "signed_out") {
-      setError(copy.coachNeedsAccount);
-      return;
-    }
-    const client = getSupabase();
-    if (!client) {
-      setError(copy.coachNotConfigured);
-      return;
-    }
+    if (sendLock.current || busy) return;
+    sendLock.current = true;
+    setBusy(true);
     setError(null);
     setFailedText(null);
-    const userTurn: ChatTurn = { id: `pending-${Date.now()}`, role: "user", content: text };
-    setThread((current) => [...current, userTurn]);
-    setMessage("");
-    setBusy(true);
-    scrollToEnd();
-    await recordEvent("ai_interaction");
-    const { data, error: invokeError } = await client.functions.invoke("ai-coach", {
-      body: { message: text, conversationId: conversationId ?? undefined },
-    });
-    setBusy(false);
-    const success = replyFrom(data);
-    if (success) {
-      setThread((current) => [...current, { id: `${userTurn.id}-reply`, role: "assistant", content: success.reply }]);
-      if (success.conversationId) setConversationId(success.conversationId);
+    try {
+      if (configured === "unconfigured") {
+        setError(copy.coachNotConfigured);
+        return;
+      }
+      if (configured === "signed_out" || configured === "unknown") {
+        setError(copy.coachNeedsAccount);
+        return;
+      }
+      const client = getSupabase();
+      if (!client) {
+        setError(copy.coachNotConfigured);
+        return;
+      }
+      const { data: sessionData } = await client.auth.getSession();
+      if (!sessionData.session) {
+        setConfigured("signed_out");
+        setError(copy.coachNeedsAccount);
+        return;
+      }
+      const userTurn: ChatTurn = { id: nextTurnId(), role: "user", content: text };
+      setThread((current) => [...current, userTurn]);
+      setMessage("");
       scrollToEnd();
-      return;
+      await recordEvent("ai_interaction");
+      const { data, error: invokeError } = await client.functions.invoke("ai-coach", {
+        body: { message: text, conversationId: conversationId ?? undefined },
+      });
+      const success = replyFrom(data);
+      if (success) {
+        setThread((current) => [...current, { id: `${userTurn.id}-reply`, role: "assistant", content: success.reply }]);
+        if (success.conversationId) setConversationId(success.conversationId);
+        scrollToEnd();
+        return;
+      }
+      setThread((current) => current.filter((turn) => turn.id !== userTurn.id));
+      setFailedText(text);
+      const bodyError = errorFrom(data);
+      if (bodyError) {
+        if (/sign in|session is not valid|authentication/i.test(bodyError)) setConfigured("signed_out");
+        setError(bodyError);
+        return;
+      }
+      if (invokeError) {
+        const message = await messageFromInvokeError(invokeError);
+        if (/sign in|session|JWT|auth/i.test(message)) setConfigured("signed_out");
+        setError(message);
+        return;
+      }
+      setError(copy.coachUnavailable);
+    } finally {
+      sendLock.current = false;
+      setBusy(false);
     }
-    // The request failed: drop the optimistic user turn and offer Retry rather than showing an answer that was never given.
-    setThread((current) => current.filter((turn) => turn.id !== userTurn.id));
-    setFailedText(text);
-    const bodyError = errorFrom(data);
-    if (bodyError) {
-      setError(bodyError);
-      return;
-    }
-    if (invokeError) {
-      setError(await messageFromInvokeError(invokeError));
-      return;
-    }
-    setError(copy.coachUnavailable);
   }
 
   const usingRealData = thread.length > 0 || conversationId != null;

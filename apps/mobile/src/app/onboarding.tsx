@@ -14,7 +14,7 @@ import { useTheme } from "@/design/theme";
 const steps = ["welcome", "name", "goal", "level", "body", "activity", "training", "food", "sleep", "ready"] as const;
 
 export default function OnboardingScreen() {
-  const { updateProfile } = useAppState();
+  const { profile, updateProfile } = useAppState();
   const { colors } = useTheme();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
@@ -33,6 +33,7 @@ export default function OnboardingScreen() {
   const [waterMl, setWaterMl] = useState("2000");
   const [stepGoal, setStepGoal] = useState("8000");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
   const current = steps[step] ?? "welcome";
 
   const heightCm = units === "metric" ? Number(height) : feetAndInchesToCm(Number(height) || 0, Number(inches) || 0);
@@ -51,25 +52,34 @@ export default function OnboardingScreen() {
   );
 
   async function finish() {
-    await recordEvent("onboarding_completed");
-    await updateProfile({
-      id: createId(),
-      displayName: name.trim() || null,
-      ageYears: Number(age) || null,
-      sex,
-      heightCm: Number.isFinite(heightCm) && heightCm > 0 ? heightCm : null,
-      weightKg: Number.isFinite(weightKg) && weightKg > 0 ? weightKg : null,
-      fitnessLevel: level,
-      activityLevel: activity,
-      goal,
-      unitSystem: units,
-      workoutPreference: training,
-      dietary: [diet],
-      sleepTargetMinutes: Math.round(Number(sleepHours) * 60) || null,
-      hydrationTargetMl: Number(waterMl) || null,
-      stepGoal: Number(stepGoal) || null,
-      onboardingCompletedAt: new Date().toISOString(),
-    });
+    if (finishing) return;
+    setFinishing(true);
+    setSaveError(null);
+    try {
+      await recordEvent("onboarding_completed");
+      // Reuse an existing local profile id so a double-tap cannot create multiple rows.
+      await updateProfile({
+        id: profile?.id ?? createId(),
+        displayName: name.trim() || null,
+        ageYears: Number(age) || null,
+        sex,
+        heightCm: Number.isFinite(heightCm) && heightCm > 0 ? heightCm : null,
+        weightKg: Number.isFinite(weightKg) && weightKg > 0 ? weightKg : null,
+        fitnessLevel: level,
+        activityLevel: activity,
+        goal,
+        unitSystem: units,
+        workoutPreference: training,
+        dietary: [diet],
+        sleepTargetMinutes: Math.round(Number(sleepHours) * 60) || null,
+        hydrationTargetMl: Number(waterMl) || null,
+        stepGoal: Number(stepGoal) || null,
+        onboardingCompletedAt: new Date().toISOString(),
+      });
+    } catch (reason) {
+      setFinishing(false);
+      setSaveError(reason instanceof Error ? reason.message : "Profile could not be saved.");
+    }
   }
 
   return (
@@ -226,13 +236,13 @@ export default function OnboardingScreen() {
       <View style={{ height: space.xl }} />
       {saveError ? <AppText variant="small">{saveError}</AppText> : null}
       <Button
-        label={current === "ready" ? "Enter" : "Continue"}
+        label={current === "ready" ? (finishing ? "Saving…" : "Enter") : "Continue"}
+        disabled={finishing}
         onPress={() => {
+          if (finishing) return;
           if (current === "welcome") void recordEvent("onboarding_started");
           if (current === "ready") {
-            void finish().catch((error: unknown) => {
-              setSaveError(error instanceof Error ? error.message : "The profile could not be saved on this device.");
-            });
+            void finish();
             return;
           }
           setStep((value) => value + 1);
@@ -241,7 +251,7 @@ export default function OnboardingScreen() {
       {step > 0 ? (
         <View style={{ height: space.sm }} />
       ) : null}
-      {step > 0 ? <Button label="Back" tone="ghost" onPress={() => setStep((value) => value - 1)} /> : null}
+      {step > 0 ? <Button label="Back" tone="ghost" onPress={() => setStep((value) => value - 1)} disabled={finishing} /> : null}
     </Screen>
   );
 }

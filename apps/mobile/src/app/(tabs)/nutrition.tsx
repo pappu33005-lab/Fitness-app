@@ -30,7 +30,6 @@ const MEAL_ORDER: MealName[] = ["breakfast", "lunch", "dinner", "snack"];
 const MEAL_LABEL: Record<MealName, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
 
 function nutritionWeekDays(selected: string, zone: string) {
-  const today = localDay(new Date(), zone);
   const anchor = new Date();
   return Array.from({ length: 7 }, (_, index) => {
     const date = new Date(anchor);

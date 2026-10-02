@@ -28,7 +28,7 @@ Development and release builds, not Expo Go.
 | Steps, sleep, heart rate, HRV, distance, active energy, workouts (read-only) | HealthKit in `src/health/native.ios.ts`, then the pedometer as a separate labeled source for steps only | Apple Developer account, a development build, a device, and the Health permission. Distance/active-energy/workouts added this phase, unverified — see `docs/health.md` |
 | Apple Watch | Not an app in this repo. Samples appear only when HealthKit already has them | A later Swift/SwiftUI watch target. `startWatchApp` is not called |
 | Background GPS | `expo-location` background updates plus `expo-task-manager`; location background mode in the iOS config | A development build and the Always location permission. Unverified on a device. |
-| Map | Route outline from stored points; MapLibre base map when configured | `@maplibre/maplibre-react-native` installed, a rebuilt development build, and a licensed HTTPS style URL. Unverified on a device. See `docs/maps.md` |
+| Map | Route outline from stored points; MapLibre 11.4 base map when configured | A rebuilt development build and a licensed HTTPS style URL. The package and config plugin are installed. Unverified on a device. See `docs/maps.md` |
 | Microphone / snoring | Architecture only. The microphone permission is not requested | An on-device model, then a device test |
 | Sleep audio | Procedural WAV written to the cache, background audio mode | A development build for lock-screen playback |
 | Notifications | Workout, hydration, and goal reminders (`expo-notifications`, already a dependency). Local only, no push backend. A true smart alarm is not built — see `docs/notifications.md` | A development build. Unverified on a device |
@@ -41,7 +41,7 @@ Development and release builds, not Expo Go.
 | --- | --- | --- |
 | Steps, sleep, heart rate, HRV, distance, active energy, workouts (read-only) | Health Connect in `src/health/native.android.ts`, then the pedometer as a separate labeled source for steps only | A development build, Android 9+ with the Health Connect app, and Play Console health declaration later. Distance/active-energy/workouts added this phase, unverified — see `docs/health.md` |
 | Background GPS | `expo-location` background updates plus `expo-task-manager`, with a foreground-service notification | A development build and the background location permission. Unverified on a device. |
-| Map | Route outline from stored points; MapLibre base map when configured | `@maplibre/maplibre-react-native` installed, a rebuilt development build, and a licensed HTTPS style URL. Google Maps is not a dependency. Unverified on a device. See `docs/maps.md` |
+| Map | Route outline from stored points; MapLibre 11.4 base map when configured | A rebuilt development build and a licensed HTTPS style URL. The package and config plugin are installed. Google Maps is not a dependency. Unverified on a device. See `docs/maps.md` |
 | Wearables | No WHOOP, Fitbit, or Garmin client | Official OAuth API access and a registered developer app for WHOOP/Fitbit; Garmin additionally requires non-self-serve program approval. Data can still arrive through Health Connect if a device's own app writes there. See `docs/wearables.md` |
 | Microphone / snoring | Same on-device design as iOS. Permission is not requested | A model and a device test |
 | Sleep audio, reminder notifications, haptics | Native modules, same boundary as iOS. Reminder channels are separate from the Phase 3 foreground-service location notification | A development build. Unverified on a device |

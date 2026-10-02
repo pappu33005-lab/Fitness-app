@@ -55,42 +55,56 @@ export type Split = {
   paceSecondsPerKilometer: number | null;
 };
 
-export function buildSplits(points: GeoPoint[], splitMeters: number): Split[] {
+/**
+ * Builds distance splits using moving time only (same pause-gap rule as `movingSeconds`).
+ * Long gaps between consecutive points are excluded from split duration/pace so a pause
+ * cannot inflate split pace. Distance still comes from the recorded points; no fake GPS
+ * points are invented across a pause.
+ */
+export function buildSplits(points: GeoPoint[], splitMeters: number, maxGapMs = 90_000): Split[] {
   if (points.length < 2 || splitMeters <= 0) return [];
-  const first = points[0];
-  if (!first) return [];
   const splits: Split[] = [];
-  let splitStartMs = first.recordedAtMs;
   let distanceIntoSplit = 0;
+  let movingMsIntoSplit = 0;
 
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
     if (!previous || !current) continue;
     const segmentLength = haversineMeters(previous, current);
-    const segmentDuration = current.recordedAtMs - previous.recordedAtMs;
-    let consumed = 0;
+    const rawGap = current.recordedAtMs - previous.recordedAtMs;
+    const segmentMovingMs = rawGap > 0 && rawGap <= maxGapMs ? rawGap : 0;
+    if (segmentLength <= 0.01) {
+      // Negligible movement: still attribute continuous moving time to the open split.
+      movingMsIntoSplit += segmentMovingMs;
+      continue;
+    }
+
     let segmentLeft = segmentLength;
+    let timeLeft = segmentMovingMs;
 
     while (segmentLeft > 0.01) {
       const need = splitMeters - distanceIntoSplit;
       if (segmentLeft + 0.01 < need) {
         distanceIntoSplit += segmentLeft;
+        movingMsIntoSplit += timeLeft;
         break;
       }
-      consumed += need;
-      const fraction = segmentLength === 0 ? 1 : consumed / segmentLength;
-      const endedAt = previous.recordedAtMs + segmentDuration * Math.min(1, fraction);
-      const durationSeconds = Math.max(1, (endedAt - splitStartMs) / 1000);
+      const fraction = need / segmentLeft;
+      const timeUsed = timeLeft * fraction;
+      movingMsIntoSplit += timeUsed;
+      const durationSeconds = movingMsIntoSplit / 1000;
       splits.push({
         index: splits.length + 1,
         distanceMeters: splitMeters,
         durationSeconds,
-        paceSecondsPerKilometer: durationSeconds / (splitMeters / 1000),
+        paceSecondsPerKilometer:
+          durationSeconds > 0 ? durationSeconds / (splitMeters / 1000) : null,
       });
       segmentLeft -= need;
+      timeLeft -= timeUsed;
       distanceIntoSplit = 0;
-      splitStartMs = endedAt;
+      movingMsIntoSplit = 0;
     }
   }
 
@@ -102,6 +116,24 @@ export function durationSeconds(points: GeoPoint[]): number {
   const last = points[points.length - 1];
   if (!first || !last) return 0;
   return Math.max(0, (last.recordedAtMs - first.recordedAtMs) / 1000);
+}
+
+/**
+ * Moving time excludes long gaps between consecutive points (pauses, GPS dropouts).
+ * Wall-clock elapsed time remains `durationSeconds`. Pace and MET estimates should use
+ * moving time when points were not written while paused.
+ */
+export function movingSeconds(points: GeoPoint[], maxGapMs = 90_000): number {
+  if (points.length < 2) return 0;
+  let totalMs = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    if (!previous || !current) continue;
+    const gap = current.recordedAtMs - previous.recordedAtMs;
+    if (gap > 0 && gap <= maxGapMs) totalMs += gap;
+  }
+  return totalMs / 1000;
 }
 
 export function paceSecondsPerKilometer(distanceMeters: number, seconds: number): number | null {
@@ -167,4 +199,23 @@ export function shouldPersistBackgroundLocation(state: {
   foregroundWriterActive: boolean;
 }): boolean {
   return shouldAcceptLocationUpdate(state) && !state.foregroundWriterActive;
+}
+
+/**
+ * Foreground-only recording cannot continue after the Record screen unmounts (or when
+ * Always/background location is not active). Auto-pause instead of silently dropping
+ * points. Background-capable sessions must not auto-pause — the native task continues.
+ */
+export function shouldAutoPauseForegroundRecording(state: {
+  hasActiveSession: boolean;
+  alreadyPaused: boolean;
+  backgroundTrackingActive: boolean;
+  stopping: boolean;
+}): boolean {
+  return (
+    state.hasActiveSession &&
+    !state.alreadyPaused &&
+    !state.backgroundTrackingActive &&
+    !state.stopping
+  );
 }

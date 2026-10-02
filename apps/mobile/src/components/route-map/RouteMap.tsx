@@ -15,7 +15,7 @@ import { nativeTileMapAvailable, TileMap } from "./TileMap";
 
 type Props = {
   /** Stored/recorded GPS points. Only read here; the recorded data is never changed. */
-  points: ReadonlyArray<{ latitude: unknown; longitude: unknown }>;
+  points: readonly { latitude: unknown; longitude: unknown }[];
   /** True while recording: the camera follows the newest point. False: the whole route is fitted. */
   live?: boolean;
   height?: number;
@@ -40,17 +40,15 @@ class MapBoundary extends Component<{ onError: () => void; children: ReactNode }
 export function RouteMap({ points, live = false, height = 240 }: Props) {
   const { colors } = useTheme();
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
-  const [shown, setShown] = useState(points);
   const [mapState, setMapState] = useState<"loading" | "ready" | "failed">("loading");
+  // Keep the last on-screen route while the app is backgrounded. Updating here, instead of in an effect, avoids a second render after paint.
+  const [shown, setShown] = useState(points);
+  if (appActive && shown !== points) setShown(points);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) => setAppActive(next === "active"));
     return () => subscription.remove();
   }, []);
-  // While the app is backgrounded nothing is on screen, so route rebuilding is paused and resumes on return.
-  useEffect(() => {
-    if (appActive) setShown(points);
-  }, [appActive, points]);
 
   const coordinates = useMemo(() => toRouteCoordinates(shown), [shown]);
   const drawn = useMemo(() => simplifyRoute(coordinates, MAX_DRAWN_VERTICES), [coordinates]);

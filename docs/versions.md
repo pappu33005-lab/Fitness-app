@@ -17,6 +17,23 @@ Re-checked on 25 September 2026 against the official Expo compatibility matrix. 
 | Android compile / target SDK | 36 | The SDK 57 row. `minSdkVersion` is the only override, set to 26. | [SDK reference table](https://docs.expo.dev/versions/latest/) | Health Connect's SDK requires API 26. Kotlin, AGP, and Gradle stay on whatever `expo prebuild` emits for SDK 57. |
 | EAS Android image | `ubuntu-26.04-jdk-17-ndk-r27b-sdk-57` | The image aliased to `sdk-57`. | [EAS infrastructure](https://docs.expo.dev/build-reference/infrastructure/) | NDK r27b, JDK 17, Node 22.23.1, pnpm 11.9.0 on that image. Local installs use pnpm 12.6.0. |
 
+## Re-checked 1 October 2026
+
+`npx expo-doctor` against the installed tree reported patch drift inside SDK 57. `npx expo install` then aligned:
+
+| Package | After alignment |
+| --- | --- |
+| expo | 57.0.26 |
+| @expo/ui | 57.0.21 |
+| expo-camera | 57.0.6 |
+| expo-constants | 57.0.20 |
+| expo-router | 57.0.24 |
+| expo-task-manager | 57.0.21 |
+| expo-asset | 57.0.18 (direct dependency; required peer of expo-audio) |
+| @maplibre/maplibre-react-native | 11.4.0 |
+
+Node on the machine that ran these commands was 22.14.0. The project `engines` field still allows Node >= 22.13.0. pnpm was 12.6.0.
+
 ## Not selected
 
 - Expo SDK 58. npm tag `next` is `58.0.0-preview.6`. The [SDK 58 beta announcement](https://expo.dev/changelog/sdk-58-beta) says the beta uses the React Native 0.88 release candidate and lasts three to four weeks. Stable release notes are not published yet.

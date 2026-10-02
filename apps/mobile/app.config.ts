@@ -49,7 +49,13 @@ const config: ExpoConfig = {
     "expo-router",
     "expo-sqlite",
     "expo-secure-store",
-    "expo-audio",
+    [
+      "expo-audio",
+      {
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     "expo-dev-client",
     [
       "expo-splash-screen",
@@ -96,6 +102,7 @@ const config: ExpoConfig = {
     "react-native-health-connect",
     "expo-localization",
     "expo-notifications",
+    "@maplibre/maplibre-react-native",
   ],
   experiments: {
     typedRoutes: true,
@@ -103,6 +110,13 @@ const config: ExpoConfig = {
   },
   extra: {
     brand: brand.name,
+    // Public runtime env expected at build time (see .env.example / README EAS section).
+    // Values come from process.env / EAS secrets — never hardcode secrets here.
+    easPublicEnv: [
+      "EXPO_PUBLIC_SUPABASE_URL",
+      "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "EXPO_PUBLIC_MAP_TILE_STYLE_URL",
+    ],
   },
 };
 

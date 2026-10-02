@@ -7,7 +7,7 @@ import {
   type DatedValue,
   type ProductEventName,
 } from "@vitacore/domain";
-import { enqueue, getDatabase, readPreference, writePreference } from "./db";
+import { enqueueOn, getDatabase, readPreference, withOutboxTransaction, writePreference } from "./db";
 import { createId } from "@/lib/id";
 
 export async function recordEvent(name: ProductEventName, subjectId?: string | null): Promise<void> {
@@ -46,30 +46,31 @@ export async function logFood(input: {
   notes?: string | null;
 }): Promise<string> {
   const id = createId();
-  const db = await getDatabase();
-  await db.runAsync(
-    `INSERT INTO nutrition_logs (
+  await withOutboxTransaction(async (db) => {
+    await db.runAsync(
+      `INSERT INTO nutrition_logs (
       id, day, timezone, meal, food_name, source, source_id, servings, kcal, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, logged_at, notes
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    input.day,
-    input.timezone,
-    input.meal,
-    input.name,
-    input.source,
-    input.sourceId,
-    input.servings,
-    input.kcal * input.servings,
-    input.proteinG == null ? null : input.proteinG * input.servings,
-    input.carbsG == null ? null : input.carbsG * input.servings,
-    input.fatG == null ? null : input.fatG * input.servings,
-    input.fiberG == null ? null : input.fiberG * input.servings,
-    input.sugarG == null ? null : input.sugarG * input.servings,
-    input.sodiumMg == null ? null : input.sodiumMg * input.servings,
-    new Date().toISOString(),
-    input.notes?.trim() || null,
-  );
-  await enqueue("nutrition_logs", id);
+      id,
+      input.day,
+      input.timezone,
+      input.meal,
+      input.name,
+      input.source,
+      input.sourceId,
+      input.servings,
+      input.kcal * input.servings,
+      input.proteinG == null ? null : input.proteinG * input.servings,
+      input.carbsG == null ? null : input.carbsG * input.servings,
+      input.fatG == null ? null : input.fatG * input.servings,
+      input.fiberG == null ? null : input.fiberG * input.servings,
+      input.sugarG == null ? null : input.sugarG * input.servings,
+      input.sodiumMg == null ? null : input.sodiumMg * input.servings,
+      new Date().toISOString(),
+      input.notes?.trim() || null,
+    );
+    await enqueueOn(db, "nutrition_logs", id);
+  });
   await recordEvent(input.source === "barcode" ? "food_scanned" : "meal_logged", id);
   return id;
 }
@@ -131,34 +132,34 @@ export async function updateFoodLog(
     notes: string | null;
   },
 ): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(
-    `UPDATE nutrition_logs SET meal = ?, food_name = ?, kcal = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, sugar_g = ?, sodium_mg = ?, notes = ? WHERE id = ?`,
-    patch.meal,
-    patch.name,
-    patch.kcal,
-    patch.proteinG,
-    patch.carbsG,
-    patch.fatG,
-    patch.fiberG,
-    patch.sugarG,
-    patch.sodiumMg,
-    patch.notes?.trim() || null,
-    id,
-  );
-  // Re-queues the current row for sync; if it had already synced, this upserts the edit onto the same remote row.
-  await enqueue("nutrition_logs", id);
+  await withOutboxTransaction(async (db) => {
+    await db.runAsync(
+      `UPDATE nutrition_logs SET meal = ?, food_name = ?, kcal = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, sugar_g = ?, sodium_mg = ?, notes = ? WHERE id = ?`,
+      patch.meal,
+      patch.name,
+      patch.kcal,
+      patch.proteinG,
+      patch.carbsG,
+      patch.fatG,
+      patch.fiberG,
+      patch.sugarG,
+      patch.sodiumMg,
+      patch.notes?.trim() || null,
+      id,
+    );
+    await enqueueOn(db, "nutrition_logs", id);
+  });
 }
 
 /**
- * Removes a food entry locally. If it had already synced to Supabase, the remote copy is
- * not deleted — there is no delete-sync protocol yet, only create/update. Any not-yet-synced
- * outbox entry for this id resolves itself harmlessly the next sync pass (the sync worker
- * already treats a missing local row as nothing-to-do).
+ * Removes a food entry locally and queues a remote delete for the same client_id.
+ * Not-yet-synced upserts for this id are superseded by the newer delete outbox row.
  */
 export async function deleteFoodLog(id: string): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync("DELETE FROM nutrition_logs WHERE id = ?", id);
+  await withOutboxTransaction(async (db) => {
+    await db.runAsync("DELETE FROM nutrition_logs WHERE id = ?", id);
+    await enqueueOn(db, "nutrition_logs", id, "delete");
+  });
 }
 
 export async function waterForDay(day: string): Promise<number> {
@@ -171,16 +172,17 @@ export async function waterForDay(day: string): Promise<number> {
 export async function addWater(day: string, timezone: string, ml: number): Promise<string> {
   if (!isValidWaterAmountMl(ml)) throw new Error("Water amount must be a whole number of millilitres greater than zero.");
   const id = createId();
-  const db = await getDatabase();
-  await db.runAsync(
-    "INSERT INTO hydration_logs (id, day, timezone, ml, logged_at) VALUES (?, ?, ?, ?, ?)",
-    id,
-    day,
-    timezone,
-    ml,
-    new Date().toISOString(),
-  );
-  await enqueue("hydration_logs", id);
+  await withOutboxTransaction(async (db) => {
+    await db.runAsync(
+      "INSERT INTO hydration_logs (id, day, timezone, ml, logged_at) VALUES (?, ?, ?, ?, ?)",
+      id,
+      day,
+      timezone,
+      ml,
+      new Date().toISOString(),
+    );
+    await enqueueOn(db, "hydration_logs", id);
+  });
   return id;
 }
 
@@ -191,31 +193,60 @@ export async function waterEntriesForDay(day: string): Promise<WaterLogRow[]> {
   return db.getAllAsync<WaterLogRow>("SELECT id, ml, logged_at FROM hydration_logs WHERE day = ? ORDER BY logged_at DESC", day);
 }
 
-/** Removes a water entry locally. Same remote-deletion caveat as deleteFoodLog. */
+/** Removes a water entry locally and queues a remote delete for the same client_id. */
 export async function deleteWaterLog(id: string): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync("DELETE FROM hydration_logs WHERE id = ?", id);
+  await withOutboxTransaction(async (db) => {
+    await db.runAsync("DELETE FROM hydration_logs WHERE id = ?", id);
+    await enqueueOn(db, "hydration_logs", id, "delete");
+  });
 }
 
+/**
+ * Saves a manual sleep note for a wake day. Replaces any prior manual note for that day
+ * (same local id when one exists) so nights do not accumulate uncontrolled duplicates.
+ */
 export async function saveSleep(input: { day: string; timezone: string; start: string; end: string }): Promise<void> {
-  const id = createId();
-  const db = await getDatabase();
-  await db.runAsync(
-    "INSERT INTO sleep_sessions (id, day, timezone, asleep_start, asleep_end, source) VALUES (?, ?, ?, ?, ?, 'manual')",
-    id,
-    input.day,
-    input.timezone,
-    input.start,
-    input.end,
-  );
-  await enqueue("sleep_sessions", id);
-  await recordEvent("sleep_recorded", id);
+  await withOutboxTransaction(async (db) => {
+    const existing = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM sleep_sessions WHERE day = ? AND source = 'manual' ORDER BY asleep_end DESC LIMIT 1",
+      input.day,
+    );
+    const id = existing?.id ?? createId();
+    if (existing) {
+      await db.runAsync(
+        "UPDATE sleep_sessions SET timezone = ?, asleep_start = ?, asleep_end = ? WHERE id = ?",
+        input.timezone,
+        input.start,
+        input.end,
+        id,
+      );
+    } else {
+      await db.runAsync(
+        "INSERT INTO sleep_sessions (id, day, timezone, asleep_start, asleep_end, source) VALUES (?, ?, ?, ?, ?, 'manual')",
+        id,
+        input.day,
+        input.timezone,
+        input.start,
+        input.end,
+      );
+    }
+    await enqueueOn(db, "sleep_sessions", id);
+  });
+  await recordEvent("sleep_recorded", input.day);
 }
 
 export async function latestManualSleep() {
   const db = await getDatabase();
   return db.getFirstAsync<{ day: string; asleep_start: string; asleep_end: string; source: string }>(
     "SELECT day, asleep_start, asleep_end, source FROM sleep_sessions ORDER BY asleep_end DESC LIMIT 1",
+  );
+}
+
+export async function sleepForDay(day: string) {
+  const db = await getDatabase();
+  return db.getFirstAsync<{ day: string; asleep_start: string; asleep_end: string; source: string }>(
+    "SELECT day, asleep_start, asleep_end, source FROM sleep_sessions WHERE day = ? ORDER BY asleep_end DESC LIMIT 1",
+    day,
   );
 }
 
@@ -239,7 +270,19 @@ export async function addSet(input: {
   reps: number | null;
   weightKg: number | null;
 }): Promise<void> {
+  if (input.reps != null && (!Number.isFinite(input.reps) || input.reps < 0)) {
+    throw new Error("Reps must be a valid non-negative number.");
+  }
+  if (input.weightKg != null && (!Number.isFinite(input.weightKg) || input.weightKg < 0)) {
+    throw new Error("Weight must be a valid non-negative number.");
+  }
   const db = await getDatabase();
+  const session = await db.getFirstAsync<{ ended_at: string | null }>(
+    "SELECT ended_at FROM workout_sessions WHERE id = ?",
+    input.sessionId,
+  );
+  if (!session) throw new Error("This workout session was not found.");
+  if (session.ended_at) throw new Error("This workout is finished and cannot accept new sets.");
   const row = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) AS count FROM workout_sets WHERE session_id = ? AND exercise_id = ?",
     input.sessionId,
@@ -261,10 +304,25 @@ export async function addSet(input: {
 }
 
 export async function finishWorkout(sessionId: string): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync("UPDATE workout_sessions SET ended_at = ? WHERE id = ?", new Date().toISOString(), sessionId);
-  await enqueue("workout_sessions", sessionId);
+  await withOutboxTransaction(async (db) => {
+    const session = await db.getFirstAsync<{ ended_at: string | null }>(
+      "SELECT ended_at FROM workout_sessions WHERE id = ?",
+      sessionId,
+    );
+    if (!session) throw new Error("This workout session was not found.");
+    if (session.ended_at) throw new Error("This workout is already finished.");
+    await db.runAsync("UPDATE workout_sessions SET ended_at = ? WHERE id = ?", new Date().toISOString(), sessionId);
+    await enqueueOn(db, "workout_sessions", sessionId);
+  });
   await recordEvent("workout_completed", sessionId);
+}
+
+export async function workoutSessionById(sessionId: string) {
+  const db = await getDatabase();
+  return db.getFirstAsync<{ id: string; started_at: string; ended_at: string | null }>(
+    "SELECT id, started_at, ended_at FROM workout_sessions WHERE id = ?",
+    sessionId,
+  );
 }
 
 export async function listWorkouts() {
@@ -374,15 +432,16 @@ export async function finishActivitySession(
   sessionId: string,
   input: { endedAt: string; distanceMeters: number; movingSeconds: number },
 ): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(
-    "UPDATE activity_sessions SET ended_at = ?, distance_meters = ?, moving_seconds = ? WHERE id = ?",
-    input.endedAt,
-    input.distanceMeters,
-    input.movingSeconds,
-    sessionId,
-  );
-  await enqueue("activity_sessions", sessionId);
+  await withOutboxTransaction(async (db) => {
+    await db.runAsync(
+      "UPDATE activity_sessions SET ended_at = ?, distance_meters = ?, moving_seconds = ? WHERE id = ?",
+      input.endedAt,
+      input.distanceMeters,
+      input.movingSeconds,
+      sessionId,
+    );
+    await enqueueOn(db, "activity_sessions", sessionId);
+  });
 }
 
 const ACTIVE_ACTIVITY_KEY = "active_activity_session";

@@ -1,3 +1,4 @@
+export * from "./account";
 export * from "./analytics";
 export * from "./history";
 export * from "./calories";
@@ -7,6 +8,7 @@ export * from "./health";
 export * from "./maps";
 export * from "./nextAction";
 export * from "./nutrition";
+export * from "./platformSleep";
 export * from "./profile";
 export * from "./recovery";
 export * from "./reminders";

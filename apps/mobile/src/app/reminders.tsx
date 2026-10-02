@@ -23,7 +23,7 @@ import {
 import { useTheme } from "@/design/theme";
 import { space } from "@/design/tokens";
 
-const WEEKDAY_LABELS: Array<{ value: Weekday; label: string }> = [
+const WEEKDAY_LABELS: { value: Weekday; label: string }[] = [
   { value: 0, label: "Sun" },
   { value: 1, label: "Mon" },
   { value: 2, label: "Tue" },
@@ -236,7 +236,7 @@ export default function RemindersScreen() {
             />
             {errorFor("quietHours") ? <AppText variant="caption" color={colors.accent}>{errorFor("quietHours")}</AppText> : null}
             <AppText variant="caption" color={colors.textSecondary}>
-              Only hydration reminders honor quiet hours today. Workout and goal reminders use the single time set above.
+              Quiet hours apply to workout, hydration, and goal reminders. A reminder whose time falls inside this window is skipped.
             </AppText>
           </>
         ) : null}

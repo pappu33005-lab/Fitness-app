@@ -1,3 +1,24 @@
+## Cursor verification — 1 October 2026
+
+This section was added after a networked verification pass. It overrides the older "never executed" claims below where they conflict.
+
+| Check | Result |
+| --- | --- |
+| Tracked files before this pass | 122, excluding `.git`. The handoff's count of 123 and its list of root files did not match the tree: `.env.example`, `.gitignore`, `.npmrc`, and `.nvmrc` were absent, and the readme was named `README 2.md`. |
+| `pnpm install` | PASS |
+| `pnpm typecheck` | PASS after the repairs in this pass |
+| `pnpm test` | PASS — 8 files, 175 tests (the handoff's "~250" was not the Vitest count) |
+| `pnpm --filter @vitacore/mobile lint` | PASS (0 errors) after the repairs |
+| `npx expo-doctor` | FAIL on the original pins (missing `expo-asset` peer, five SDK 57 patch mismatches). After `npx expo install` aligned those packages, a second run passed 21/21. |
+| `npx expo config --type public` | PASS. Config loads, including the MapLibre plugin. |
+| Development build, device, Supabase project, Gemini request | NOT RUN |
+
+Repairs in that pass: MapLibre 11.4 plus its config plugin and a v11 `TileMap`; `expo-task-manager` aligned to 57.0.21; Expo patch alignment and `expo-asset`; microphone recording permissions turned off for playback-only `expo-audio`; Gemini `temperature` removed; profile sync writes `profiles.timezone`; older duplicate outbox rows are cleared with the row that was uploaded; Health Connect out-of-bed sleep is counted as awake; health readers use the installed library types instead of casts; lint errors in the coach, food editor, and route map.
+
+Still not done here: a live Supabase project, RLS proof against two users, delete synchronization, a development build, and any physical device.
+
+---
+
 THIS DOCUMENT IS A HANDOFF, NOT A CLAIM THAT THE APPLICATION IS PRODUCTION READY.
 
 Everything in this document was written by an AI (Claude) working in a sandbox with **no
@@ -34,17 +55,15 @@ packages/brand        Static brand constants (name, colors reference).
 
 supabase/
   migrations/          one SQL file (0001_foundation.sql) — the entire remote schema
-  functions/ai-coach/  the Gemini-calling Edge Function
-  functions/_shared/   logic shared between the edge function and (as a test-only mirror) packages/domain
+  functions/ai-coach/  self-contained Gemini Edge Function (single index.ts for dashboard deploy)
+  functions/_shared/   coach-logic reference copy (inlined into ai-coach; mirrored in packages/domain for tests)
 ```
 
 **Why domain logic is duplicated for the AI coach specifically**: a Supabase Edge Function runs
-on Deno, outside the pnpm workspace / Vitest module graph, so `supabase/functions/_shared/coach-logic.ts`
-(the real, deployed logic) has a content-identical copy at `packages/domain/src/coach.ts` (test-only,
-never imported by the app or the function) purely so it can run under this project's real Vitest.
-Whether a Deno function can instead import `packages/domain` directly at deploy time was never
-checked — no network access to a real Supabase CLI. This is flagged as technical debt (section 21).
-
+on Deno, outside the pnpm workspace / Vitest module graph. `ai-coach/index.ts` is self-contained
+for dashboard deployment; `supabase/functions/_shared/coach-logic.ts` and
+`packages/domain/src/coach.ts` keep content-identical copies for readability and Vitest.
+`packages/domain/src/coach.ts` is never imported by the app or the function.
 **Local-first, sync-optional**: SQLite (`apps/mobile/src/data/db.ts`) is the source of truth.
 Supabase is an opt-in backup/sync layer (Phase 2) that requires sign-in; every feature works fully
 signed-out. Row Level Security scopes every Supabase table to `auth.uid()`; the mobile app never
@@ -197,7 +216,7 @@ unconfirmed, not supported.
 | Retry | IMPLEMENTED; UNVERIFIED | 60s interval, no-op when nothing pending |
 | Offline behavior | IMPLEMENTED | Local-first; a failed sync pass never touches local data |
 | Idempotency | IMPLEMENTED; UNVERIFIED | `upsert(..., onConflict: 'user_id,client_id')` on every synced table except `activity_points`, which has no such column and instead reuses the local row's UUID as the remote primary key (works only when `createId()` produced a real UUID — flagged in code) |
-| **Delete synchronization** | **MISSING** | Phase 2 only ever supports create/update. Deleting a food or water entry (Phase 6) removes it locally only; an already-synced remote copy is left behind. Documented, not silently broken |
+| **Delete synchronization** | IMPLEMENTED (code) | Food/water deletes enqueue remote deletes by `user_id` + `client_id`. Live verification still requires Supabase. |
 
 ### Notifications
 | Feature | Status |
@@ -269,7 +288,7 @@ account, Garmin Connect Developer Program approval.
 
 ## 12. Required API credentials
 
-`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (public, safe to ship — RLS-protected),
+`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (public, safe to ship — RLS-protected),
 `GEMINI_API_KEY` + optionally `GEMINI_MODEL` (Supabase Edge Function secret, server-only),
 `EXPO_PUBLIC_MAP_TILE_STYLE_URL` (public, compiled into the app — use a key restricted to this
 app if the provider embeds one in the URL). `SUPABASE_SERVICE_ROLE_KEY` is referenced only in

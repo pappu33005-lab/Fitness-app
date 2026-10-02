@@ -1,11 +1,11 @@
 /**
  * Local-first outbox sync worker.
  *
- * Local SQLite stays the source of truth at all times. This module only ever reads local
- * rows and pushes copies of them to Supabase — it never deletes or rewrites local data,
- * and it never blocks any local read/write path. When there is no session, or no network,
- * or Supabase is not configured, every local feature keeps working exactly as it does
- * today; this file just quietly has nothing to do.
+ * Local SQLite stays the source of truth at all times. This module reads local rows and
+ * pushes upserts (or remote deletes for food/water) to Supabase — it never rewrites local
+ * feature data as part of a sync pass. When there is no session, or no network, or Supabase
+ * is not configured, every local feature keeps working exactly as it does today; this file
+ * just quietly has nothing to do.
  *
  * The actual decisions (what counts as an error worth stopping for, what an outbox row's
  * remote payload looks like, when a pass is allowed to start) live in
@@ -26,11 +26,15 @@ import {
   buildWorkoutSetPayload,
   canStartSync,
   classifySupabaseError,
+  decideAccountSync,
   dedupeOutboxItems,
+  deviceTimeZone,
   isSupportedEntity,
   nextSyncStatus,
+  outboxIdsToClear,
   shouldAbortBatch,
   shouldMarkSynced,
+  isDeletableEntity,
   type LocalActivityPointRow,
   type LocalActivitySessionRow,
   type LocalHydrationLogRow,
@@ -44,13 +48,23 @@ import {
   type SyncStatus,
 } from "@vitacore/domain";
 import { getSupabase, supabaseConfigStatus } from "@/auth/supabase";
-import { clearOutboxItem, getDatabase, listPendingOutbox, onOutboxChange, type OutboxRow } from "./db";
+import {
+  clearOutboxItem,
+  getDatabase,
+  listPendingOutbox,
+  onOutboxChange,
+  readSyncOwnerUserId,
+  writeSyncOwnerUserId,
+  type OutboxRow,
+} from "./db";
 
 // --- Status store (no extra state-management dependency; React 19's useSyncExternalStore is enough) ---
 
 type Listener = () => void;
 let status: SyncStatus = "idle";
 let lastMessage: string | null = null;
+/** One-shot consent for binding unbound guest/local data to the current session user. */
+let claimConfirmedForSession = false;
 const listeners = new Set<Listener>();
 
 function setStatus(next: SyncStatus, message: string | null = null): void {
@@ -87,11 +101,20 @@ async function uploadOne(client: SupabaseClient, userId: string, item: OutboxIte
   const db = await getDatabase();
 
   try {
+    if (item.operation === "delete") {
+      if (!isDeletableEntity(item.entity)) {
+        return { kind: "unsupported_entity", itemId: item.id, entity: item.entity };
+      }
+      const { error } = await client.from(item.entity).delete().eq("user_id", userId).eq("client_id", item.entityId);
+      if (error) throw error;
+      return { kind: "synced", itemId: item.id };
+    }
+
     switch (item.entity) {
       case "profile": {
         const row = await db.getFirstAsync<LocalProfileRow>("SELECT * FROM profile WHERE id = ?", item.entityId);
         if (!row) return { kind: "skipped_missing_local_row", itemId: item.id };
-        const { error } = await client.from("profiles").upsert(buildProfilePayload(row, userId), { onConflict: "id" });
+        const { error } = await client.from("profiles").upsert(buildProfilePayload(row, userId, deviceTimeZone()), { onConflict: "id" });
         if (error) throw error;
         return { kind: "synced", itemId: item.id };
       }
@@ -160,11 +183,11 @@ async function uploadOne(client: SupabaseClient, userId: string, item: OutboxIte
           "SELECT id, session_id, latitude, longitude, altitude_meters, recorded_at_ms FROM activity_points WHERE session_id = ?",
           item.entityId,
         );
-        const pointPayloads = points
-          .map((point) => buildActivityPointPayload(point, userId))
-          .filter((payload): payload is Record<string, unknown> => payload !== null);
+        const pointPayloads = points.map((point) => buildActivityPointPayload(point, userId));
         if (pointPayloads.length > 0) {
-          const { error: pointsError } = await client.from("activity_points").upsert(pointPayloads, { onConflict: "id" });
+          const { error: pointsError } = await client
+            .from("activity_points")
+            .upsert(pointPayloads, { onConflict: "user_id,client_id" });
           if (pointsError) throw pointsError;
         }
         return { kind: "synced", itemId: item.id };
@@ -221,12 +244,39 @@ export async function runSync(): Promise<void> {
     }
     const userId = session.user.id;
 
+    const ownerId = await readSyncOwnerUserId();
+    const binding = ownerId ? ({ status: "bound", userId: ownerId } as const) : ({ status: "unbound" } as const);
+    const decision = decideAccountSync(binding, userId, { claimConfirmed: claimConfirmedForSession });
+    if (decision.action === "skip_signed_out") {
+      setStatus("idle");
+      return;
+    }
+    if (decision.action === "block_mismatch") {
+      setStatus(
+        "error",
+        "Local data on this device belongs to a different account. Sign in as that account to sync, or delete local data from Profile first.",
+      );
+      return;
+    }
+    if (decision.action === "await_claim_confirmation") {
+      setStatus(
+        "claim_required",
+        "This device has local data. Signing in will associate this local data with this account. Confirm on the Account screen to continue.",
+      );
+      return;
+    }
+    if (decision.action === "claim_and_sync") {
+      await writeSyncOwnerUserId(decision.bindUserId);
+      claimConfirmedForSession = false;
+    }
+
     const pendingRows = await listPendingOutbox();
     const items: OutboxItem[] = pendingRows.map((row: OutboxRow) => ({
       id: row.id,
       entity: row.entity,
       entityId: row.entity_id,
       createdAt: row.created_at,
+      operation: row.operation,
     }));
     const deduped = dedupeOutboxItems(items);
 
@@ -235,7 +285,9 @@ export async function runSync(): Promise<void> {
       const outcome = await uploadOne(client, userId, item);
       outcomes.push(outcome);
       if (shouldMarkSynced(outcome)) {
-        await clearOutboxItem(item.id);
+        for (const id of outboxIdsToClear(item, items)) {
+          await clearOutboxItem(id);
+        }
       }
       if (shouldAbortBatch(outcome)) break;
     }
@@ -285,6 +337,10 @@ export function initSync(): () => void {
   if (client) {
     const { data } = client.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") kick(0);
+      if (event === "SIGNED_OUT") {
+        claimConfirmedForSession = false;
+        setStatus("idle");
+      }
     });
     unsubscribeAuth = () => data.subscription.unsubscribe();
   }
@@ -303,6 +359,16 @@ export function initSync(): () => void {
 
 /** For the manual "Sync now" affordance. Same worker, same guards — just triggered immediately instead of waiting on a timer. */
 export function syncNow(): void {
+  void runSync();
+}
+
+/**
+ * Explicit user confirmation that unbound local/guest data on this device may be
+ * associated with the currently signed-in account. Does not weaken mismatch blocking
+ * for an already-bound different user.
+ */
+export function confirmLocalDataClaim(): void {
+  claimConfirmedForSession = true;
   void runSync();
 }
 

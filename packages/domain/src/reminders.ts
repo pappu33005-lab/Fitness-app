@@ -273,7 +273,7 @@ export function planReminders(settings: ReminderSettings, context: { now: Date; 
   const earliest = now.getTime() + 60_000;
 
   const workout: PlannedNotification[] = [];
-  if (settings.workout.enabled && !workoutBlocked) {
+  if (settings.workout.enabled && !workoutBlocked && !isQuietMinute(settings.workout.timeMinutes, settings.quietHours)) {
     settings.workout.days.forEach((weekday, index) => {
       const copy = WORKOUT_COPY[index % WORKOUT_COPY.length] as { title: string; body: string };
       workout.push({
@@ -293,7 +293,7 @@ export function planReminders(settings: ReminderSettings, context: { now: Date; 
   }
 
   const goal: PlannedNotification[] = [];
-  if (settings.goals.enabled && !timeBlocked) {
+  if (settings.goals.enabled && !timeBlocked && !isQuietMinute(settings.goals.timeMinutes, settings.quietHours)) {
     for (let offset = 0; offset < GOAL_HORIZON_DAYS; offset += 1) {
       const at = atLocal(now, offset, settings.goals.timeMinutes);
       if (at.getTime() < earliest) continue;

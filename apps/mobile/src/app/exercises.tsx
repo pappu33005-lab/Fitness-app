@@ -12,6 +12,8 @@ export default function ExercisesScreen() {
   const { colors } = useTheme();
   const [query, setQuery] = useState("");
   const [equipment, setEquipment] = useState<string | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const equipmentOptions = [...new Set(exercises.map((item) => item.equipment))];
   const filtered = useMemo(
     () =>
@@ -32,6 +34,7 @@ export default function ExercisesScreen() {
       <View style={{ height: space.md }} />
       <FilterChips options={equipmentOptions} value={equipment} onChange={setEquipment} />
       <View style={{ height: space.lg }} />
+      {error ? <AppText variant="small" color={colors.accent}>{error}</AppText> : null}
       {filtered.map((item) => (
         <View key={item.id} style={{ paddingVertical: space.md, gap: 6 }}>
           <AppText variant="h3">{item.name}</AppText>
@@ -39,10 +42,19 @@ export default function ExercisesScreen() {
           <AppText variant="small">{item.instructions.join(" ")}</AppText>
           <AppText variant="caption">{item.safety}</AppText>
           <Button
-            label="Start session with this"
+            label={startingId === item.id ? "Starting…" : "Start session with this"}
             tone="secondary"
+            disabled={startingId != null}
             onPress={() => {
-              void createWorkout().then((id) => router.push(`/workout/${id}?exercise=${item.id}`));
+              if (startingId) return;
+              setStartingId(item.id);
+              setError(null);
+              void createWorkout()
+                .then((id) => router.push(`/workout/${id}?exercise=${item.id}`))
+                .catch((reason: unknown) => {
+                  setStartingId(null);
+                  setError(reason instanceof Error ? reason.message : "A workout could not be started.");
+                });
             }}
           />
         </View>

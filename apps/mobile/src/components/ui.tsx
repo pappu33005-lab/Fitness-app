@@ -432,12 +432,14 @@ export function TextField({
   onChangeText,
   keyboardType,
   placeholder,
+  secureTextEntry,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   keyboardType?: "default" | "email-address" | "numeric" | "decimal-pad" | "numbers-and-punctuation";
   placeholder?: string;
+  secureTextEntry?: boolean;
 }) {
   const { colors } = useTheme();
   return (
@@ -450,6 +452,9 @@ export function TextField({
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
         autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry={secureTextEntry}
+        textContentType={secureTextEntry ? "password" : undefined}
         accessibilityLabel={label}
         style={{
           minHeight: 52,

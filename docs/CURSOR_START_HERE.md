@@ -7,6 +7,21 @@ For each step below, record one of: **PASS**, **FAIL**, **BLOCKED**, **UNVERIFIE
 **REQUIRES DEVICE**, **REQUIRES EXTERNAL SERVICE**. Don't skip a step because an earlier
 report said it would work.
 
+## Recorded on 1 October 2026
+
+- STEP 1 `pnpm install`: **PASS**
+- STEP 2 `pnpm typecheck`: **PASS** after fixes (the first run, before those fixes, also passed)
+- STEP 3 `pnpm test`: **PASS** (175 tests)
+- STEP 4 lint: **FAIL** on the first run (4 errors). **PASS** after the fixes.
+- STEP 5 MapLibre: **installed** `@maplibre/maplibre-react-native@11.4.0` and the config plugin. Tile rendering remains **REQUIRES DEVICE** / a development build.
+- STEP 6 live Supabase: **REQUIRES EXTERNAL SERVICE**
+- STEP 7 EAS development builds: **BLOCKED** (no Apple, Google Play, or EAS credentials in this environment)
+- STEPS 8–9 physical devices: **REQUIRES DEVICE**
+
+### Auth repair before device testing (same day)
+
+Password fields were cleartext (`secureTextEntry` missing). Sign-out was absent from the Account screen despite the auth checklist. Both were fixed. Re-ran typecheck, test, lint, and expo-doctor — all **PASS**. Live sign-in/sign-out against a Supabase project remains **REQUIRES EXTERNAL SERVICE** / **REQUIRES DEVICE**.
+
 ## STEP 1 — Install dependencies
 ```
 pnpm install

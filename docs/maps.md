@@ -27,17 +27,14 @@ path, so it was not used. `expo-maps` was rejected because it uses Google Maps o
 | Item | Value |
 | --- | --- |
 | `EXPO_PUBLIC_MAP_TILE_STYLE_URL` | HTTPS MapLibre style URL. Empty means outline only. `http://` is rejected. |
-| Dependency | `@maplibre/maplibre-react-native`, **not yet in `package.json`**. No version was guessed. Install with `npx expo install @maplibre/maplibre-react-native` (or the package's documented command) on a networked machine, then commit the resolved version and lockfile. |
-| Expo config plugin | The package documents a config plugin. It was **not** added to `app.config.ts`, because a plugin entry for an uninstalled package breaks config loading. Add it after installing, following the installed version's docs. |
+| Dependency | `@maplibre/maplibre-react-native` **11.4.0**, installed with `npx expo install` on 1 Oct 2026. Peers: Expo >= 54, React Native >= 0.80. This repo is Expo SDK 57 and React Native 0.86.3. |
+| Expo config plugin | `"@maplibre/maplibre-react-native"` is in `app.config.ts`. The plugin is required for the iOS Podfile hook. |
 | Expo Go | Not supported. It is a native module. |
 | Development build | Required, and it must be rebuilt after installing the package. |
 | iOS / Android | No API key is needed by the library itself. Any key belongs to the tile provider and, if it sits in the URL, is visible in the app. Restrict it to this app. |
 | Web preview | Outline only. |
 
-The tile map component (`src/components/route-map/TileMap.tsx`) was written from memory of the v10
-API (`MapView`, `Camera`, `ShapeSource`, `LineLayer`, `CircleLayer`). A newer major version renamed
-components. Re-check it against the installed version. The library is loaded inside a try/catch,
-so a build without it shows the outline rather than crashing.
+`src/components/route-map/TileMap.tsx` calls the installed v11 API (`Map`, `Camera`, `GeoJSONSource`, `Layer`). `line-cap` and `line-join` are layout properties in the style spec. The module is loaded with `require` inside try/catch, so a failed JavaScript load keeps the SVG outline. Tiles still need a development build; this environment did not produce one.
 
 ## Behavior
 

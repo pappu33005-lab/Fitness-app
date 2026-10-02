@@ -84,3 +84,52 @@ export function dayPeriod(instant: Date, timeZone: string): DayPeriod {
   if (hour < 17) return "afternoon";
   return "evening";
 }
+
+/** Parses `HH:MM` or `H:MM` into minutes-from-midnight. Rejects invalid clock values. */
+export function parseHourMinute(value: string): { hour: number; minute: number; minutesFromMidnight: number } | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return { hour, minute, minutesFromMidnight: hour * 60 + minute };
+}
+
+export type OvernightSleepBounds =
+  | { ok: true; day: string; startIso: string; endIso: string; asleepMinutes: number }
+  | { ok: false; reason: string };
+
+/**
+ * Builds an overnight (or same-day nap) sleep interval from a wake-day and two clock times.
+ * For normal overnight sleep (bed 23:00, wake 07:00 on the morning of `wakeDay`), bedtime is
+ * placed on the previous calendar day. Same-day naps (bed after wake on the clock is false,
+ * i.e. bed < wake) stay on `wakeDay`.
+ */
+export function overnightSleepBounds(input: {
+  wakeDay: string;
+  bedTime: string;
+  wakeTime: string;
+  timeZone: string;
+}): OvernightSleepBounds {
+  const bed = parseHourMinute(input.bedTime);
+  const wake = parseHourMinute(input.wakeTime);
+  if (!bed || !wake) return { ok: false, reason: "Use times like 23:00 and 07:00." };
+  if (bed.minutesFromMidnight === wake.minutesFromMidnight) {
+    return { ok: false, reason: "Bedtime and wake time need to be different." };
+  }
+  const bedDay = bed.minutesFromMidnight >= wake.minutesFromMidnight ? addDays(input.wakeDay, -1) : input.wakeDay;
+  const startMs = startOfZonedDay(bedDay, input.timeZone).getTime() + bed.minutesFromMidnight * 60_000;
+  const endMs = startOfZonedDay(input.wakeDay, input.timeZone).getTime() + wake.minutesFromMidnight * 60_000;
+  if (!(endMs > startMs)) return { ok: false, reason: "Wake time needs to be after bedtime." };
+  const asleepMinutes = Math.round((endMs - startMs) / 60_000);
+  if (asleepMinutes < 1 || asleepMinutes > 24 * 60) {
+    return { ok: false, reason: "That sleep note is outside a realistic overnight range." };
+  }
+  return {
+    ok: true,
+    day: input.wakeDay,
+    startIso: new Date(startMs).toISOString(),
+    endIso: new Date(endMs).toISOString(),
+    asleepMinutes,
+  };
+}

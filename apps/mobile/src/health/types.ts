@@ -10,7 +10,8 @@ export type SleepReading =
       status: "value";
       sourceLabel: string;
       asleepMinutes: number;
-      inBedMinutes: number;
+      /** Null when the store did not report in-bed — never invented from asleep. */
+      inBedMinutes: number | null;
       stages: StageMinutes | null;
     }
   | { status: "empty"; sourceLabel: string; detail: string }

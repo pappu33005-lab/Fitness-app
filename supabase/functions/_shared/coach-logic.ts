@@ -5,17 +5,15 @@
  * plain function of its arguments, which is what makes it checkable without a live
  * database or model.
  *
- * This file is imported by supabase/functions/ai-coach/index.ts (relative import, Deno
- * resolves local .ts files directly, no bundler needed).
+ * The dashboard-deployable Edge Function at supabase/functions/ai-coach/index.ts inlines
+ * this logic so it does not depend on a relative ../_shared import (the Supabase web
+ * editor only provides index.ts). Keep this file and that inlined block in sync.
  *
- * A content-identical copy lives at packages/domain/src/coach.ts purely so it can run
+ * A content-identical copy also lives at packages/domain/src/coach.ts purely so it can run
  * under this project's real Vitest setup — Deno edge functions are not part of the pnpm
  * workspace/Vitest graph, so that is the only way to get this logic under the project's
  * actual test runner. That copy is never imported by the edge function or the mobile app.
- * KEEP THE TWO FILES IN SYNC. Whether a Deno edge function can instead import straight from
- * packages/domain/src/coach.ts at deploy time was not checked here (no network access to a
- * real Supabase CLI/deploy in this environment) — worth trying on a networked machine to
- * remove this duplication.
+ * KEEP THE COPIES IN SYNC.
  */
 
 export type ChatRole = "user" | "assistant";
@@ -106,13 +104,29 @@ export function emptyCoachContext(): CoachContext {
   return { profile: null, nutritionToday: null, hydrationToday: null, latestSleep: null, recentWorkouts: [], recentActivity: [] };
 }
 
+/** Calendar day for an ISO instant in `timeZone`. Falls back to the UTC date prefix if the zone is invalid. */
+export function coachDayLabel(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 /**
  * Turns whatever of `context` is actually populated into plain-language facts for the
  * model's system instruction. Every line either states a real value or explicitly says
  * that value is not recorded — nothing is guessed, and a missing field never becomes a
  * silently-omitted line (which the model could not distinguish from "not asked about").
+ * Workout/activity dates use the profile timezone so near-midnight sessions are not
+ * labeled with the UTC calendar day.
  */
-export function buildContextFacts(context: CoachContext): string[] {
+export function buildContextFacts(context: CoachContext, timeZone = "UTC"): string[] {
   const p = context.profile;
   const facts: string[] = [
     p?.ageYears != null ? `Age: ${p.ageYears} years` : "Age is not saved.",
@@ -135,10 +149,10 @@ export function buildContextFacts(context: CoachContext): string[] {
       ? `Most recently recorded sleep (${context.latestSleep.day}): ${Math.round((context.latestSleep.asleepMinutes / 60) * 10) / 10} h asleep.`
       : "No sleep session has been recorded and synced.",
     context.recentWorkouts.length
-      ? `Recent finished workouts: ${context.recentWorkouts.map((w) => `${w.startedAt.slice(0, 10)} (${w.setCount} set${w.setCount === 1 ? "" : "s"})`).join("; ")}.`
+      ? `Recent finished workouts: ${context.recentWorkouts.map((w) => `${coachDayLabel(w.startedAt, timeZone)} (${w.setCount} set${w.setCount === 1 ? "" : "s"})`).join("; ")}.`
       : "No finished workout has been recorded and synced.",
     context.recentActivity.length
-      ? `Recent GPS activity: ${context.recentActivity.map((a) => `${a.kind} on ${a.startedAt.slice(0, 10)}, ${(a.distanceMeters / 1000).toFixed(1)} km`).join("; ")}.`
+      ? `Recent GPS activity: ${context.recentActivity.map((a) => `${a.kind} on ${coachDayLabel(a.startedAt, timeZone)}, ${(a.distanceMeters / 1000).toFixed(1)} km`).join("; ")}.`
       : "No GPS activity has been recorded and synced.",
     "Step count, heart rate, heart-rate variability, and a recovery score are not available to this assistant, even if the phone has recently measured them. Only what the person states in the conversation is known — treat it as their report, not a measurement you have access to.",
     "A precise daily calorie target is calculated in the VitaCore app itself from the profile fields above and is not recalculated here. If asked for a number, give only a clearly-labeled rough estimate and point to the Nutrition tab for the app's own figure.",

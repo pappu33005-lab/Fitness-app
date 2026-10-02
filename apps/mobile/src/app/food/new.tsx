@@ -41,8 +41,8 @@ export default function NewFoodScreen() {
         carbsG: values.carbsG,
         fatG: values.fatG,
         fiberG: values.fiberG,
-        sugarG: null,
-        sodiumMg: null,
+        sugarG: values.sugarG,
+        sodiumMg: values.sodiumMg,
         notes: values.notes,
       });
       router.back();

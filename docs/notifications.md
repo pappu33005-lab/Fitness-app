@@ -103,8 +103,8 @@ crashing or discarding the rest.
 - Hydration and goal reminders are date-based, not truly recurring, so they depend on the app
   being opened at least occasionally (launch or foreground return) to keep the next couple of
   days populated. Workout reminders do not have this limitation.
-- Only hydration reminders honor quiet hours today. Workout and goal reminders use their own
-  single configured time, so quiet hours do not need to be consulted for them.
+- Quiet hours apply to workout, hydration, and goal reminders. A reminder whose scheduled
+  time falls inside the quiet window is skipped.
 - Quiet hours are a reminder-only setting entered on this screen. The app has no bedtime/wake
   setting to derive them from.
 - The device's local timezone is used throughout (`new Date()` and local calendar fields); no

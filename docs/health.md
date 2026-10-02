@@ -35,7 +35,7 @@ for steps, sleep, resting heart rate, and HRV. This phase:
 | Resting HR / HRV | HealthKit (Phase 1) | Health Connect (Phase 1) | Unchanged |
 | **Distance** | `HKQuantityTypeIdentifierDistanceWalkingRunning` | `Distance` record | New this phase |
 | **Active energy** | `HKQuantityTypeIdentifierActiveEnergyBurned` | `ActiveCaloriesBurned` record | New this phase |
-| **Workouts (read-only)** | `queryWorkoutSamples` (best-guess API name) | `ExerciseSession` record | New this phase, least certain — see below |
+| **Workouts (read-only)** | `queryWorkoutSamples` | `ExerciseSession` record | Function and field names match the installed type definitions. Device reads are still unverified. |
 
 Distance and active energy have **no phone-sensor fallback** the way steps has one (Core
 Motion's pedometer only reports a step count) — without HealthKit/Health Connect access, these

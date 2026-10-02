@@ -8,6 +8,37 @@ export type NutrientTotals = {
   sodiumMg: number | null;
 };
 
+/**
+ * Open Food Facts `serving_quantity` is only safe as grams when the source unit is
+ * explicitly grams. Units such as serving/ml/oz must not be treated as grams.
+ * Returns null when the quantity cannot honestly be used as a gram serving (caller
+ * should fall back to per-100 g values).
+ */
+export function resolveServingQuantityGrams(
+  quantity: number | string | null | undefined,
+  unit: string | null | undefined,
+): number | null {
+  const parsed =
+    typeof quantity === "number"
+      ? quantity
+      : typeof quantity === "string" && quantity.trim()
+        ? Number(quantity)
+        : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const normalized = (unit ?? "").trim().toLowerCase();
+  if (normalized !== "g" && normalized !== "gram" && normalized !== "grams") return null;
+  if (parsed > 1000) return null;
+  return parsed;
+}
+
+/** Honest log/display label for an OFF-derived amount: only "N g" or the 100 g fallback. */
+export function openFoodFactsServingLabel(servingQuantityG: number | null): string {
+  if (servingQuantityG != null && Number.isFinite(servingQuantityG) && servingQuantityG > 0) {
+    return `${Math.round(servingQuantityG)} g`;
+  }
+  return "100 g";
+}
+
 export type NutrientLine = NutrientTotals & { servings: number };
 
 function scale(value: number | null, servings: number): number | null {

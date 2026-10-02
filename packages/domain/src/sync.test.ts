@@ -8,6 +8,7 @@ import {
   dedupeOutboxItems,
   isSupportedEntity,
   nextSyncStatus,
+  outboxIdsToClear,
   shouldAbortBatch,
   shouldMarkSynced,
   type OutboxItem,
@@ -81,15 +82,17 @@ describe("duplicate / idempotent upload", () => {
       sugar_g: null,
       sodium_mg: null,
       logged_at: "2026-09-28T12:00:00.000Z",
+      notes: "extra salt",
     };
     const first = buildNutritionLogPayload(row, "user-1");
     const second = buildNutritionLogPayload(row, "user-1");
     expect(first).toEqual(second);
     expect(first.client_id).toBe("row-1");
     expect(first.user_id).toBe("user-1");
+    expect(first.notes).toBe("extra salt");
   });
 
-  it("a valid-UUID activity point gets a payload; a non-UUID local id is skipped rather than sent with a bad id", () => {
+  it("activity points always carry client_id; UUID local ids also set remote id", () => {
     const base = {
       session_id: "session-1",
       latitude: 1,
@@ -98,14 +101,15 @@ describe("duplicate / idempotent upload", () => {
       recorded_at_ms: 1_700_000_000_000,
     };
     const withUuid = buildActivityPointPayload({ ...base, id: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }, "user-1");
-    expect(withUuid).not.toBeNull();
-    expect(withUuid?.id).toBe("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+    expect(withUuid.client_id).toBe("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+    expect(withUuid.id).toBe("3fa85f64-5717-4562-b3fc-2c963f66afa6");
 
     const withFallbackId = buildActivityPointPayload({ ...base, id: "id_1700000000000_abc123" }, "user-1");
-    expect(withFallbackId).toBeNull();
+    expect(withFallbackId.client_id).toBe("id_1700000000000_abc123");
+    expect(withFallbackId.id).toBeUndefined();
   });
 
-  it("does not invent a remote column: profile payload never carries a timezone field", () => {
+  it("sends the device timezone on the existing profiles.timezone column", () => {
     const row = {
       id: "local-profile-1",
       display_name: "Alex",
@@ -124,9 +128,9 @@ describe("duplicate / idempotent upload", () => {
       step_goal: null,
       onboarding_completed_at: null,
     };
-    const payload = buildProfilePayload(row, "auth-user-1");
+    const payload = buildProfilePayload(row, "auth-user-1", "America/New_York");
     expect(payload.id).toBe("auth-user-1"); // remote profiles.id is the auth user id, not the local row id
-    expect("timezone" in payload).toBe(false);
+    expect(payload.timezone).toBe("America/New_York");
   });
 });
 
@@ -139,9 +143,9 @@ describe("signed-out state", () => {
 describe("multiple queued records", () => {
   it("dedupes repeated edits of the same local record down to the newest queued item", () => {
     const items: OutboxItem[] = [
-      { id: "o1", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:00:00.000Z" },
-      { id: "o2", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:05:00.000Z" },
-      { id: "o3", entity: "nutrition_logs", entityId: "n1", createdAt: "2026-09-28T10:01:00.000Z" },
+      { id: "o1", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:00:00.000Z", operation: "upsert" },
+      { id: "o2", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:05:00.000Z", operation: "upsert" },
+      { id: "o3", entity: "nutrition_logs", entityId: "n1", createdAt: "2026-09-28T10:01:00.000Z", operation: "upsert" },
     ];
     const deduped = dedupeOutboxItems(items);
     expect(deduped).toHaveLength(2);
@@ -149,10 +153,31 @@ describe("multiple queued records", () => {
     expect(deduped.find((item) => item.entity === "nutrition_logs")?.id).toBe("o3");
   });
 
+  it("a later delete replaces an earlier upsert for the same record", () => {
+    const items: OutboxItem[] = [
+      { id: "o1", entity: "nutrition_logs", entityId: "n1", createdAt: "2026-09-28T10:00:00.000Z", operation: "upsert" },
+      { id: "o2", entity: "nutrition_logs", entityId: "n1", createdAt: "2026-09-28T10:05:00.000Z", operation: "delete" },
+    ];
+    const deduped = dedupeOutboxItems(items);
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]?.operation).toBe("delete");
+  });
+
+  it("clears older queued copies of a record once the newest copy is accepted", () => {
+    const items: OutboxItem[] = [
+      { id: "o1", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:00:00.000Z", operation: "upsert" },
+      { id: "o2", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:05:00.000Z", operation: "upsert" },
+      { id: "o3", entity: "nutrition_logs", entityId: "n1", createdAt: "2026-09-28T10:01:00.000Z", operation: "upsert" },
+      { id: "o4", entity: "profile", entityId: "p1", createdAt: "2026-09-28T10:06:00.000Z", operation: "upsert" },
+    ];
+    const processed = items[1]!;
+    expect(outboxIdsToClear(processed, items).sort()).toEqual(["o1", "o2"]);
+  });
+
   it("leaves distinct records untouched and in their original relative order", () => {
     const items: OutboxItem[] = [
-      { id: "o1", entity: "hydration_logs", entityId: "h1", createdAt: "2026-09-28T10:00:00.000Z" },
-      { id: "o2", entity: "hydration_logs", entityId: "h2", createdAt: "2026-09-28T10:01:00.000Z" },
+      { id: "o1", entity: "hydration_logs", entityId: "h1", createdAt: "2026-09-28T10:00:00.000Z", operation: "upsert" },
+      { id: "o2", entity: "hydration_logs", entityId: "h2", createdAt: "2026-09-28T10:01:00.000Z", operation: "upsert" },
     ];
     expect(dedupeOutboxItems(items)).toEqual(items);
   });
@@ -186,7 +211,7 @@ describe("concurrent sync protection", () => {
   });
 
   it("allows starting from every other status", () => {
-    for (const status of ["idle", "synced", "offline", "auth_required", "error"] as const) {
+    for (const status of ["idle", "synced", "offline", "auth_required", "error", "claim_required"] as const) {
       expect(canStartSync(status)).toBe(true);
     }
   });

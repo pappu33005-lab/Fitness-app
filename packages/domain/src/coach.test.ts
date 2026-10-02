@@ -165,6 +165,20 @@ describe("context selection: available user data", () => {
     expect(facts).toContain("5.2 km");
   });
 
+  it("labels workout and activity days in the profile timezone, not UTC", () => {
+    // 2026-09-26T18:00Z is still 2026-09-26 in New York, but late evening UTC can roll the calendar.
+    const late = {
+      ...emptyCoachContext(),
+      recentWorkouts: [{ startedAt: "2026-09-27T02:30:00Z", setCount: 4 }],
+      recentActivity: [{ kind: "walk", startedAt: "2026-09-27T03:15:00Z", distanceMeters: 1000, movingSeconds: 600 }],
+    };
+    const utcFacts = buildContextFacts(late, "UTC").join(" | ");
+    const nyFacts = buildContextFacts(late, "America/New_York").join(" | ");
+    expect(utcFacts).toContain("2026-09-27");
+    expect(nyFacts).toContain("2026-09-26");
+    expect(nyFacts).not.toContain("2026-09-27");
+  });
+
   it("still never claims a step count, HR, HRV, or recovery score even with everything else available", () => {
     const facts = buildContextFacts(fullContext).join(" ");
     expect(facts).toContain("Step count, heart rate, heart-rate variability, and a recovery score are not available");

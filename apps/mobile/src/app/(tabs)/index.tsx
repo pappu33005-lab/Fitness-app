@@ -15,7 +15,7 @@ import {
 } from "@vitacore/domain";
 import { AppText, Avatar, Button, Card, IconButton, ProgressBar, Screen, StatRow, WeekStrip } from "@/components/ui";
 import { useAppState } from "@/data/app-state";
-import { foodsForDay, listActivities, listWorkouts, waterForDay } from "@/data/logs";
+import { foodsForDay, listActivities, listWorkouts, sleepForDay, waterForDay } from "@/data/logs";
 import { useTheme } from "@/design/theme";
 import { copy } from "@/i18n/copy";
 import {
@@ -41,6 +41,10 @@ function weekDays(selected: string, zone: string) {
   });
 }
 
+function minutesBetween(startIso: string, endIso: string): number {
+  return Math.max(0, (new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+}
+
 export default function HomeScreen() {
   const { profile } = useAppState();
   const { colors } = useTheme();
@@ -50,57 +54,82 @@ export default function HomeScreen() {
   const [selected, setSelected] = useState(today);
   const [steps, setSteps] = useState<StepReading | null>(null);
   const [platformSleep, setPlatformSleep] = useState<SleepReading | null>(null);
+  const [manualSleep, setManualSleep] = useState<Awaited<ReturnType<typeof sleepForDay>>>(null);
   const [heartRate, setHeartRate] = useState<HeartRateReading | null>(null);
   const [hrv, setHrv] = useState<HrvReading | null>(null);
   const [kcal, setKcal] = useState(0);
   const [water, setWater] = useState(0);
   const [moved, setMoved] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const isToday = selected === today;
-    Promise.all([
+    void Promise.all([
       foodsForDay(selected),
       waterForDay(selected),
       listActivities(),
       listWorkouts(),
       isToday ? readSteps() : Promise.resolve(null),
-      // Recovery only ever reflects today: a past day's heart rate / sleep is not re-fetched here.
       isToday ? readSleep() : Promise.resolve(null),
       isToday ? readRestingHeartRate() : Promise.resolve(null),
       isToday ? readHeartRateVariability() : Promise.resolve(null),
+      sleepForDay(selected),
     ])
-      .then(([foods, ml, activities, workouts, stepReading, sleepReading, heartRateReading, hrvReading]) => {
+      .then(([foods, ml, activities, workouts, stepReading, sleepReading, heartRateReading, hrvReading, manual]) => {
         if (cancelled) return;
+        setLoadError(null);
         setKcal(foods.reduce((sum, food) => sum + food.kcal, 0));
         setWater(ml);
-        setMoved(activities.some((item) => item.started_at.slice(0, 10) === selected) || workouts.some((item) => item.started_at.slice(0, 10) === selected));
+        setMoved(
+          activities.some((item) => localDay(new Date(item.started_at), zone) === selected) ||
+            workouts.some((item) => localDay(new Date(item.started_at), zone) === selected),
+        );
         setSteps(stepReading);
         setPlatformSleep(sleepReading);
         setHeartRate(heartRateReading);
         setHrv(hrvReading);
+        setManualSleep(manual);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) {
+          setLoadError("This day's cards could not be loaded from this device.");
+          setSteps(null);
+          setPlatformSleep(null);
+          setHeartRate(null);
+          setHrv(null);
+          setManualSleep(null);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [selected, today]);
+  }, [selected, today, zone]);
+
+  const isToday = selected === today;
+  const platformSleepValid = isToday && platformSleep?.status === "value";
+  const asleepMinutes = platformSleepValid
+    ? platformSleep.asleepMinutes
+    : manualSleep
+      ? minutesBetween(manualSleep.asleep_start, manualSleep.asleep_end)
+      : null;
+  const inBedMinutes = platformSleepValid ? platformSleep.inBedMinutes : null;
+  const stageMinutes = platformSleepValid ? platformSleep.stages : null;
 
   const sleepScore = scoreSleep({
-    asleepMinutes: platformSleep?.status === "value" ? platformSleep.asleepMinutes : null,
-    inBedMinutes: platformSleep?.status === "value" ? platformSleep.inBedMinutes : null,
+    asleepMinutes,
+    inBedMinutes,
     targetMinutes: profile?.sleepTargetMinutes ?? null,
     bedtimeDeviationMinutes: null,
     disturbanceCount: null,
-    stageMinutes: platformSleep?.status === "value" ? platformSleep.stages : null,
+    stageMinutes,
   });
   const recovery = scoreRecovery({
     sleepScore: sleepScore.status === "scored" ? sleepScore.score : null,
-    restingHr: heartRate?.status === "value" ? heartRate.restingBpm : null,
-    restingHrBaseline: heartRate?.status === "value" ? heartRate.baselineBpm : null,
-    hrvMs: hrv?.status === "value" ? hrv.valueMs : null,
-    hrvBaselineMs: hrv?.status === "value" ? hrv.baselineMs : null,
-    // Training load is not tracked yet, so this factor is always left out honestly rather than guessed.
+    restingHr: isToday && heartRate?.status === "value" ? heartRate.restingBpm : null,
+    restingHrBaseline: isToday && heartRate?.status === "value" ? heartRate.baselineBpm : null,
+    hrvMs: isToday && hrv?.status === "value" ? hrv.valueMs : null,
+    hrvBaselineMs: isToday && hrv?.status === "value" ? hrv.baselineMs : null,
     recentLoad: null,
     chronicLoad: null,
   });
@@ -118,9 +147,16 @@ export default function HomeScreen() {
       })
     : null;
   const platform = Platform.OS === "ios" || Platform.OS === "android" || Platform.OS === "web" ? Platform.OS : "other";
+  const healthState = !isToday
+    ? "ready"
+    : steps?.status === "value" || steps?.status === "empty"
+      ? "ready"
+      : steps?.status === "unavailable"
+        ? "unavailable"
+        : "unavailable";
   const action = recommendNextAction({
     platform,
-    health: steps?.status === "value" ? "ready" : "unavailable",
+    health: healthState,
     hasMealToday: kcal > 0,
     hasActivityToday: moved,
   });
@@ -131,6 +167,43 @@ export default function HomeScreen() {
     start_activity: { title: "Record a session", body: "A walk, run, ride, or hike uses your location only after you start it." },
     review_today: { title: "Today is logged", body: "You can review the meal and the session, or leave the rest alone." },
   }[action];
+
+  const sleepValue =
+    asleepMinutes != null
+      ? formatDuration(asleepMinutes)
+      : isToday
+        ? platformSleep?.status === "empty"
+          ? "No sleep recorded"
+          : "Unavailable"
+        : "No sleep note";
+  const sleepDetail = platformSleepValid
+    ? platformSleep.stages
+      ? `${platformSleep.sourceLabel}. Stages from the health store.`
+      : `${platformSleep.sourceLabel}. ${copy.stagesNeedSource}`
+    : manualSleep
+      ? "Entered by you on this device."
+      : isToday
+        ? platformSleep?.status === "empty" || platformSleep?.status === "unavailable"
+          ? platformSleep.detail
+          : copy.stagesNeedSource
+        : "Manual sleep notes for this day appear here when saved.";
+
+  const activityValue = !isToday
+    ? moved
+      ? "Logged"
+      : "No session"
+    : steps?.status === "value"
+      ? steps.steps.toLocaleString("en-US")
+      : steps?.status === "empty"
+        ? "No steps yet"
+        : "Unavailable";
+  const activityDetail = !isToday
+    ? moved
+      ? "A workout or GPS session was recorded on this day."
+      : "No workout or GPS session on this day. Platform steps are only read for today."
+    : steps?.status === "value"
+      ? steps.sourceLabel
+      : steps?.detail ?? "Checking the health source.";
 
   return (
     <Screen>
@@ -146,29 +219,24 @@ export default function HomeScreen() {
       <View style={{ height: space.xl }} />
       <WeekStrip days={weekDays(selected, zone)} onSelect={setSelected} />
       <View style={{ height: space.xl }} />
+      {loadError ? <AppText variant="small" color={colors.accent}>{loadError}</AppText> : null}
       <Card>
-        <AppText variant="label">Today</AppText>
-        <StatRow
-          label="Sleep"
-          value="Not measured here"
-          detail={copy.stagesNeedSource}
-        />
+        <AppText variant="label">{isToday ? "Today" : selected}</AppText>
+        <StatRow label="Sleep" value={sleepValue} detail={sleepDetail} />
         <StatRow
           label="Recovery"
-          value={recovery.status === "scored" ? String(recovery.score) : "Not scored"}
+          value={isToday ? (recovery.status === "scored" ? String(recovery.score) : "Not scored") : "Today only"}
           detail={
-            recovery.status === "scored"
-              ? `From ${recovery.factors.map((factor) => factor.id.replace("_", " ")).join(", ")}${
-                  recovery.omitted.length > 0 ? `. Left out: ${recovery.omitted.map((id) => id.replace("_", " ")).join(", ")}.` : "."
-                }`
-              : "A recovery score needs at least two real inputs, such as sleep plus a heart-rate baseline."
+            !isToday
+              ? "Recovery uses today's health-store readings."
+              : recovery.status === "scored"
+                ? `From ${recovery.factors.map((factor) => factor.id.replace("_", " ")).join(", ")}${
+                    recovery.omitted.length > 0 ? `. Left out: ${recovery.omitted.map((id) => id.replace("_", " ")).join(", ")}.` : "."
+                  }`
+                : "A recovery score needs at least two real inputs, such as sleep plus a heart-rate baseline."
           }
         />
-        <StatRow
-          label="Activity"
-          value={steps?.status === "value" ? steps.steps.toLocaleString("en-US") : "Unavailable"}
-          detail={steps?.status === "value" ? steps.sourceLabel : steps?.status === "empty" ? steps.detail : steps?.detail ?? "Checking the health source."}
-        />
+        <StatRow label="Activity" value={activityValue} detail={activityDetail} />
         <StatRow
           label="Nutrition"
           value={kcal > 0 ? `${Math.round(kcal)} kcal` : "Nothing logged"}
@@ -177,17 +245,27 @@ export default function HomeScreen() {
         />
       </Card>
       <View style={{ height: space.lg }} />
-      <Card>
-        <AppText variant="label">Next</AppText>
-        <View style={{ height: space.sm }} />
-        <AppText variant="h2">{actionCopy.title}</AppText>
-        <AppText variant="small" color={colors.textSecondary}>{actionCopy.body}</AppText>
-        <View style={{ height: space.md }} />
-        <Button
-          label={action === "log_meal" ? "Log food" : action === "start_activity" ? "Start activity" : "Open profile"}
-          onPress={() => router.push(action === "log_meal" ? "/search" : action === "start_activity" ? "/record" : "/profile")}
-        />
-      </Card>
+      {isToday ? (
+        <Card>
+          <AppText variant="label">Next</AppText>
+          <View style={{ height: space.sm }} />
+          <AppText variant="h2">{actionCopy.title}</AppText>
+          <AppText variant="small" color={colors.textSecondary}>{actionCopy.body}</AppText>
+          <View style={{ height: space.md }} />
+          <Button
+            label={action === "log_meal" ? "Log food" : action === "start_activity" ? "Start activity" : "Open profile"}
+            onPress={() => router.push(action === "log_meal" ? "/search" : action === "start_activity" ? "/record" : "/profile")}
+          />
+        </Card>
+      ) : (
+        <Card>
+          <AppText variant="label">Selected day</AppText>
+          <View style={{ height: space.sm }} />
+          <AppText variant="small" color={colors.textSecondary}>
+            Review meals and sessions for {selected}. Live health readings and next-action suggestions stay on today.
+          </AppText>
+        </Card>
+      )}
       <View style={{ height: space.lg }} />
       <Card>
         <AppText variant="label">Goals you set</AppText>

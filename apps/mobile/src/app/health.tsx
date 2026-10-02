@@ -32,7 +32,7 @@ function toSummary(connection: HealthConnection, lastRead: string | null): Healt
   return { platform, status: "unknown", lastSuccessfulReadAt: lastRead };
 }
 
-const WEARABLES: Array<{ name: string; status: string }> = [
+const WEARABLES: { name: string; status: string }[] = [
   { name: "Apple Watch", status: "Not a separate connection. Anything the Watch already writes into Apple Health is read from there — see below." },
   { name: "WHOOP", status: "Not connected. WHOOP has an official OAuth API, but it needs a registered developer app and requires the person to have their own WHOOP membership. Not built in this phase — see docs/wearables.md." },
   { name: "Fitbit", status: "Not connected. Fitbit's Web API needs OAuth and app registration; on Android, a Fitbit that already writes into Health Connect may show up above without a separate connection. See docs/wearables.md." },
